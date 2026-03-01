@@ -27,13 +27,21 @@
   <script src="https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore-compat.js"></script>
 
   <style>
-    :root{
-      --header-h: 72px;
-      --sheet-h: 62dvh; /* default bottom sheet height */
+    :root{ --header-h: 72px; }
+
+    /* Use dvh to avoid iOS Safari 100vh issues */
+    html, body { height: 100%; }
+    body { overflow: hidden; }
+
+    /* App area under header */
+    main{
+      height: calc(100dvh - var(--header-h));
+      overflow: hidden; /* prevent page double scroll */
     }
 
-    /* ✅ Use dvh (fixes iPhone Safari 100vh bugs) */
-    #map { height: calc(100dvh - var(--header-h)); }
+    /* Map fills available height */
+    #map { height: 100%; }
+    #map, .leaflet-container { position: relative; z-index: 0; }
 
     .scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
     .scrollbar::-webkit-scrollbar-thumb { background: #e4e4e7; border-radius: 999px; }
@@ -51,10 +59,6 @@
     .pulse-dot { animation: pulse 1.8s infinite; }
     @keyframes pulse { 0% { opacity: .4 } 50% { opacity: 1 } 100% { opacity: .4 } }
 
-    /* Keep sidebar above map; Leaflet behind UI */
-    aside { position: relative; z-index: 1300; }
-    #map, .leaflet-container { position: relative; z-index: 0; }
-
     /* Stronger inputs/select look */
     select, input, textarea {
       background: #fff;
@@ -68,36 +72,47 @@
       box-shadow: 0 0 0 4px rgba(17, 24, 39, 0.12);
     }
 
-    #placesList, #itineraryList { overscroll-behavior: contain; }
+    /* ✅ ONE SCROLL ONLY: the sidebar itself scrolls.
+       Remove nested tiny scrollbars by disabling inner overflow containers. */
+    #placesList, #itineraryList { overflow: visible !important; }
+    #tab_readme > div { overflow: visible !important; } /* readme wrapper */
 
-    /* ✅ Desktop: lock the whole app under the header */
+    /* Sidebar layering */
+    aside { position: relative; z-index: 1300; }
+
+    /* Desktop layout: sidebar scrolls, map stays fixed height */
     @media (min-width: 1024px){
-      main{
-        height: calc(100dvh - var(--header-h));
-        overflow: hidden; /* prevents double scroll / blank area */
-      }
       #sidebar{
         height: 100%;
-        overflow: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
       }
-      #placesList, #itineraryList { max-height: none; }
+      /* stop internal sections from forcing height constraints */
+      #sidebar .sidebar-inner{
+        height: auto !important;
+        max-height: none !important;
+      }
+      /* keep map full height */
+      .map-wrap{ height: 100%; }
     }
 
-    /* ✅ Mobile: real bottom sheet height + map padding matches it */
+    /* Mobile layout: sidebar becomes FULL SCREEN panel under header (no tiny bottom sheet) */
     @media (max-width: 1023px){
       #sidebar{
-        height: var(--sheet-h);
-        max-height: var(--sheet-h);
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
-        overflow: hidden; /* ✅ UI FIX: prevent double scroll / weird gaps */
+        position: fixed;
+        top: var(--header-h);
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: auto;
+        max-height: none;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border-radius: 0;              /* full screen, no cramped sheet */
+        box-shadow: none;
       }
-
-      .map-safe-bottom{
-        padding-bottom: var(--sheet-h);
-      }
-
-      body{ overflow: hidden; }
-      main{ overflow: hidden; }
+      /* Map remains behind; you can still see it when you scroll to top (header stays) */
+      .map-wrap{ height: 100%; }
     }
   </style>
 </head>
@@ -137,96 +152,93 @@
     </div>
   </header>
 
-  <!-- Layout: desktop = 2 columns, mobile = map behind + bottom sheet -->
+  <!-- Layout -->
   <main class="relative lg:grid lg:grid-cols-[520px_1fr]">
     <!-- Sidebar -->
     <aside id="sidebar"
       class="bg-white lg:border-r
-             fixed lg:static bottom-0 left-0 right-0
+             lg:static
              z-[1300]
-             rounded-t-[28px] lg:rounded-none
-             shadow-[0_-12px_28px_rgba(0,0,0,.10)] lg:shadow-none">
+             lg:rounded-none
+             lg:shadow-none">
 
-      <!-- Grab handle (mobile) -->
-      <div class="lg:hidden px-4 pt-3 pb-2">
-        <div class="mx-auto h-1.5 w-12 rounded-full bg-zinc-200"></div>
-      </div>
+      <!-- (optional) Mobile grab handle removed because it’s full screen now -->
 
-      <!-- ✅ UI FIX: this line was the main culprit (removed max-h-[70vh], uses h-full + dvh on desktop) -->
-      <div class="flex flex-col h-full lg:h-[calc(100dvh-72px)] max-h-none">
+      <!-- ✅ IMPORTANT: do NOT force fixed heights here. Let sidebar scroll naturally -->
+      <div class="sidebar-inner p-4 sm:p-5">
         <!-- Fixed controls -->
-        <div class="p-4 sm:p-5 shrink-0">
-          <div class="grid grid-cols-2 gap-2">
-            <button id="btnAddPlace" class="btn px-4 py-3 rounded-2xl bg-black text-white text-sm hover:opacity-95 soft-shadow">+ Add place</button>
-            <button id="btnAddFolder" class="btn px-4 py-3 rounded-2xl border bg-white text-sm hover:bg-zinc-50">+ Folder</button>
+        <div class="grid grid-cols-2 gap-2">
+          <button id="btnAddPlace" class="btn px-4 py-3 rounded-2xl bg-black text-white text-sm hover:opacity-95 soft-shadow">+ Add place</button>
+          <button id="btnAddFolder" class="btn px-4 py-3 rounded-2xl border bg-white text-sm hover:bg-zinc-50">+ Folder</button>
+        </div>
+
+        <div class="mt-4 flex gap-2">
+          <button data-tab="places" class="tabBtn btn px-3 py-2 rounded-2xl bg-black text-white text-sm">Places</button>
+          <button data-tab="itinerary" class="tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Itinerary</button>
+          <button data-tab="readme" class="tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">README</button>
+        </div>
+
+        <!-- My Places search -->
+        <div class="mt-4 p-4 rounded-3xl border bg-zinc-50">
+          <div class="flex items-center justify-between">
+            <div class="text-xs text-zinc-600">Search <b>My places</b></div>
+            <div class="text-[11px] text-zinc-500">Clear <span class="kbd">Esc</span></div>
           </div>
 
-          <div class="mt-4 flex gap-2">
-            <button data-tab="places" class="tabBtn btn px-3 py-2 rounded-2xl bg-black text-white text-sm">Places</button>
-            <button data-tab="itinerary" class="tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Itinerary</button>
-            <button data-tab="readme" class="tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">README</button>
+          <div class="mt-2 flex gap-2">
+            <input id="searchText" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"
+              placeholder="e.g. acropolis, brunch, rooftop…" />
+            <button id="btnClearSearch" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Clear</button>
           </div>
 
-          <!-- My Places search -->
-          <div class="mt-4 p-4 rounded-3xl border bg-zinc-50">
-            <div class="flex items-center justify-between">
-              <div class="text-xs text-zinc-600">Search <b>My places</b></div>
-              <div class="text-[11px] text-zinc-500">Clear <span class="kbd">Esc</span></div>
-            </div>
-
-            <div class="mt-2 flex gap-2">
-              <input id="searchText" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"
-                placeholder="e.g. acropolis, brunch, rooftop…" />
-              <button id="btnClearSearch" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Clear</button>
-            </div>
-
-            <div class="mt-3 grid grid-cols-2 gap-2">
-              <select id="filterFolder" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
-              <select id="filterCategory" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
-            </div>
-
-            <div class="mt-3 grid grid-cols-2 gap-2">
-              <button id="btnOnlyHearts" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">♥ Shortlist</button>
-              <button id="btnOnlyPinned" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">📌 Must-do</button>
-            </div>
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            <select id="filterFolder" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
+            <select id="filterCategory" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
           </div>
 
-          <!-- Map search -->
-          <div class="mt-4 p-4 rounded-3xl border bg-white soft-shadow">
-            <div class="flex items-center gap-2">
-              <div class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
-              <div class="text-xs text-zinc-600">Search <b>Athens (Map)</b> — by place name</div>
-            </div>
-
-            <div class="mt-2 flex gap-2">
-              <input id="poiQuery" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"
-                placeholder="Search by place name…" />
-              <button id="btnPoi" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Search</button>
-            </div>
-
-            <div class="mt-2 flex items-center text-[11px] text-zinc-500 gap-2">
-              <span>Click <b>Add</b> to pin.</span>
-              <button id="btnPoiClear" class="btn ml-auto underline hover:opacity-80">Clear</button>
-            </div>
-
-            <div id="poiResults" class="hidden mt-3 border rounded-3xl bg-white overflow-auto scrollbar max-h-64"></div>
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            <button id="btnOnlyHearts" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">♥ Shortlist</button>
+            <button id="btnOnlyPinned" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">📌 Must-do</button>
           </div>
         </div>
 
-        <!-- Scrollable tab area -->
-        <div class="flex-1 min-h-0">
+        <!-- Map search -->
+        <div class="mt-4 p-4 rounded-3xl border bg-white soft-shadow">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
+            <div class="text-xs text-zinc-600">Search <b>Athens (Map)</b> — by place name</div>
+          </div>
+
+          <div class="mt-2 flex gap-2">
+            <input id="poiQuery" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"
+              placeholder="Search by place name…" />
+            <button id="btnPoi" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Search</button>
+          </div>
+
+          <div class="mt-2 flex items-center text-[11px] text-zinc-500 gap-2">
+            <span>Click <b>Add</b> to pin.</span>
+            <button id="btnPoiClear" class="btn ml-auto underline hover:opacity-80">Clear</button>
+          </div>
+
+          <!-- keep this scrollable only when results are long -->
+          <div id="poiResults" class="hidden mt-3 border rounded-3xl bg-white overflow-auto scrollbar max-h-64"></div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="mt-5">
           <!-- PLACES -->
-          <section id="tab_places" class="px-4 sm:px-5 pb-5 h-full flex flex-col min-h-0">
-            <div class="flex items-center justify-between mb-2 shrink-0">
+          <section id="tab_places" class="pb-5">
+            <div class="flex items-center justify-between mb-2">
               <div class="text-sm font-semibold">My places</div>
               <div id="placesCount" class="text-xs text-zinc-500"></div>
             </div>
-            <div id="placesList" class="space-y-3 overflow-auto scrollbar flex-1 min-h-0"></div>
+            <!-- ✅ no overflow-auto here; sidebar scrolls instead -->
+            <div id="placesList" class="space-y-3"></div>
           </section>
 
           <!-- ITINERARY -->
-          <section id="tab_itinerary" class="hidden px-4 sm:px-5 pb-5 h-full flex flex-col min-h-0">
-            <div class="p-4 rounded-3xl border bg-white soft-shadow shrink-0">
+          <section id="tab_itinerary" class="hidden pb-5">
+            <div class="p-4 rounded-3xl border bg-white soft-shadow">
               <div class="flex items-center justify-between">
                 <div class="text-sm font-semibold">Itinerary</div>
                 <span class="tag">3-day friendly</span>
@@ -245,13 +257,14 @@
               </div>
             </div>
 
-            <div id="itineraryList" class="mt-4 space-y-3 overflow-auto scrollbar flex-1 min-h-0"></div>
+            <!-- ✅ no overflow-auto here -->
+            <div id="itineraryList" class="mt-4 space-y-3"></div>
           </section>
 
           <!-- README -->
-          <section id="tab_readme" class="hidden px-4 sm:px-5 pb-5 h-full flex flex-col min-h-0">
-            <div class="space-y-4 overflow-auto scrollbar flex-1 min-h-0">
-              <!-- (unchanged README content) -->
+          <section id="tab_readme" class="hidden pb-5">
+            <!-- ✅ no overflow-auto wrapper -->
+            <div class="space-y-4">
               <div class="p-5 rounded-3xl border bg-white soft-shadow">
                 <div class="text-lg font-semibold">README</div>
                 <div class="text-sm text-zinc-600 mt-1">HOW TO FOR LOST PEOPLE.</div>
@@ -330,7 +343,7 @@
     </aside>
 
     <!-- Map -->
-    <section class="relative bg-zinc-50 map-safe-bottom">
+    <section class="relative bg-zinc-50 map-wrap">
       <div id="map"></div>
 
       <div class="absolute bottom-4 left-4 glass border rounded-3xl soft-shadow px-4 py-2 text-xs text-zinc-700">
@@ -533,10 +546,9 @@
 
       /***********************
        *  FIREBASE CONFIG
-       *  ⚠️ Put your real values back here (rotate/restrict your leaked key).
        ***********************/
       const firebaseConfig = {
-        apiKey: "REPLACE_WITH_YOUR_API_KEY",
+        apiKey: "AIzaSyA4d4KIauh_bj9gKwd9prTbTJPDw_tGi4c",
         authDomain: "malakas-athens-trip.firebaseapp.com",
         projectId: "malakas-athens-trip",
         storageBucket: "malakas-athens-trip.firebasestorage.app",
@@ -683,7 +695,6 @@
       const btnPoiClearEl = document.getElementById("btnPoiClear");
       const poiResultsEl = document.getElementById("poiResults");
 
-      // Trip UI
       const tripIdLabelEl = document.getElementById("tripIdLabel");
       const btnCopyTripLinkEl = document.getElementById("btnCopyTripLink");
       if(tripIdLabelEl) tripIdLabelEl.textContent = TRIP_ID;
@@ -731,6 +742,7 @@
       const markersLayer = L.layerGroup().addTo(map);
       const poiLayer = L.layerGroup().addTo(map);
 
+      // Leaflet sizing
       setTimeout(() => map.invalidateSize(), 250);
       window.addEventListener("resize", () => map.invalidateSize());
 
@@ -944,6 +956,10 @@
           document.getElementById("tab_places").classList.toggle("hidden", tab !== "places");
           document.getElementById("tab_itinerary").classList.toggle("hidden", tab !== "itinerary");
           document.getElementById("tab_readme").classList.toggle("hidden", tab !== "readme");
+
+          // scroll sidebar to top so user sees the tab content immediately
+          const sb = document.getElementById("sidebar");
+          if(sb) sb.scrollTo({ top: 0, behavior: "smooth" });
 
           setTimeout(() => map.invalidateSize(), 250);
         });
@@ -1709,27 +1725,6 @@
       setCloudUI("off", "Cloud: off");
       initFirebase();
 
-    })();
-  </script>
-
-  <!-- ✅ UI FIX ONLY: dynamic bottom-sheet height for mobile -->
-  <script>
-    (function(){
-      function setSheetHeight(){
-        if(window.matchMedia("(max-width: 1023px)").matches){
-          const h = Math.max(
-            window.innerHeight * 0.52,
-            Math.min(window.innerHeight * 0.70, window.innerHeight - 180)
-          );
-          document.documentElement.style.setProperty("--sheet-h", h + "px");
-        }else{
-          document.documentElement.style.setProperty("--sheet-h", "62dvh");
-        }
-      }
-
-      window.addEventListener("resize", setSheetHeight);
-      window.addEventListener("orientationchange", setSheetHeight);
-      setSheetHeight();
     })();
   </script>
 </body>
