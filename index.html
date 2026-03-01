@@ -1,0 +1,1693 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Malaka’s Athens Trip Map</title>
+
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Leaflet (CDN) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <!-- Firebase COMPAT (works on more devices/browsers than ES module imports) -->
+  <script src="https://www.gstatic.com/firebasejs/12.10.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.10.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    /* Map fills viewport under header */
+    #map { height: calc(100vh - 72px); }
+
+    .scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: #e4e4e7; border-radius: 999px; }
+
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+    .soft-shadow { box-shadow: 0 10px 25px rgba(0,0,0,.08); }
+    .glass { background: rgba(255,255,255,.75); backdrop-filter: blur(10px); }
+    .kbd { border: 1px solid #e4e4e7; background: #fafafa; padding: 2px 6px; border-radius: 10px; font-size: 12px; }
+    .btn { transition: transform .08s ease, background .15s ease, border-color .15s ease, opacity .15s ease; }
+    .btn:active { transform: translateY(1px); }
+    .tag { border: 1px solid #e4e4e7; background: #fafafa; padding: 4px 10px; border-radius: 999px; font-size: 12px; }
+
+    .pulse-dot { animation: pulse 1.8s infinite; }
+    @keyframes pulse { 0% { opacity: .4 } 50% { opacity: 1 } 100% { opacity: .4 } }
+
+    /* Keep sidebar above map; Leaflet behind UI */
+    aside { position: relative; z-index: 1300; }
+    #map, .leaflet-container { position: relative; z-index: 0; }
+
+    /* Stronger inputs/select look */
+    select, input, textarea {
+      background: #fff;
+      color: #111827;
+      border-color: #d4d4d8;
+    }
+
+    /* Bigger tap targets on mobile */
+    select, input { min-height: 44px; font-weight: 600; }
+
+    select:focus, input:focus, textarea:focus {
+      outline: none;
+      border-color: #111827;
+      box-shadow: 0 0 0 4px rgba(17, 24, 39, 0.12);
+    }
+
+    #placesList, #itineraryList { overscroll-behavior: contain; }
+
+    /* Mobile: pad map so bottom sheet doesn't feel like it blocks map */
+    @media (max-width: 1023px){
+      .map-safe-bottom { padding-bottom: 18vh; }
+    }
+  </style>
+</head>
+
+<body class="bg-zinc-50 text-zinc-900">
+  <!-- Top bar -->
+  <header class="h-[72px] px-4 sm:px-6 border-b bg-white sticky top-0 z-[1100]">
+    <div class="h-full flex items-center gap-3">
+      <div class="w-10 h-10 rounded-2xl bg-black text-white flex items-center justify-center font-semibold">M</div>
+      <div class="min-w-0">
+        <div class="font-semibold leading-tight truncate">Malaka’s Athens Trip Map</div>
+        <div class="text-xs text-zinc-500 -mt-0.5 truncate">Italians in Greece</div>
+      </div>
+
+      <div class="ml-auto flex items-center gap-2">
+        <div class="hidden md:flex items-center gap-2 px-3 py-2 rounded-2xl border bg-white text-sm">
+          <span class="text-zinc-600">Trip:</span>
+          <span id="tripIdLabel" class="font-semibold"></span>
+          <button id="btnCopyTripLink" class="btn ml-2 px-2.5 py-1.5 rounded-xl border bg-white hover:bg-zinc-50 text-xs">Copy link</button>
+        </div>
+
+        <div id="cloudStatus" class="hidden sm:flex items-center gap-2 px-3 py-2 rounded-2xl border bg-white text-sm">
+          <span id="cloudDot" class="w-2 h-2 rounded-full bg-zinc-300"></span>
+          <span id="cloudText" class="text-zinc-600">Cloud: off</span>
+        </div>
+
+        <button id="btnFolders" class="btn px-3 py-2 rounded-2xl border bg-white hover:bg-zinc-50 text-sm">Folders</button>
+        <button id="btnExport" class="btn px-3 py-2 rounded-2xl border bg-white hover:bg-zinc-50 text-sm">Export</button>
+
+        <label class="btn px-3 py-2 rounded-2xl border bg-white hover:bg-zinc-50 text-sm cursor-pointer">
+          Import
+          <input id="fileImport" type="file" accept="application/json" class="hidden" />
+        </label>
+
+        <button id="btnReset" class="btn px-3 py-2 rounded-2xl border bg-white hover:bg-red-50 text-sm">Reset</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Layout: desktop = 2 columns, mobile = map behind + bottom sheet -->
+  <main class="relative lg:grid lg:grid-cols-[520px_1fr]">
+    <!-- Sidebar -->
+    <aside id="sidebar"
+      class="bg-white lg:border-r
+             fixed lg:static bottom-0 left-0 right-0
+             z-[1300]
+             rounded-t-[28px] lg:rounded-none
+             shadow-[0_-12px_28px_rgba(0,0,0,.10)] lg:shadow-none">
+
+      <!-- Grab handle (mobile) -->
+      <div class="lg:hidden px-4 pt-3 pb-2">
+        <div class="mx-auto h-1.5 w-12 rounded-full bg-zinc-200"></div>
+      </div>
+
+      <div class="flex flex-col lg:h-[calc(100vh-72px)] max-h-[70vh] lg:max-h-none">
+        <!-- Fixed controls -->
+        <div class="p-4 sm:p-5 shrink-0">
+          <div class="grid grid-cols-2 gap-2">
+            <button id="btnAddPlace" class="btn px-4 py-3 rounded-2xl bg-black text-white text-sm hover:opacity-95 soft-shadow">+ Add place</button>
+            <button id="btnAddFolder" class="btn px-4 py-3 rounded-2xl border bg-white text-sm hover:bg-zinc-50">+ Folder</button>
+          </div>
+
+          <div class="mt-4 flex gap-2">
+            <button data-tab="places" class="tabBtn btn px-3 py-2 rounded-2xl bg-black text-white text-sm">Places</button>
+            <button data-tab="itinerary" class="tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Itinerary</button>
+            <button data-tab="readme" class="tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">README</button>
+          </div>
+
+          <!-- My Places search -->
+          <div class="mt-4 p-4 rounded-3xl border bg-zinc-50">
+            <div class="flex items-center justify-between">
+              <div class="text-xs text-zinc-600">Search <b>My places</b></div>
+              <div class="text-[11px] text-zinc-500">Clear <span class="kbd">Esc</span></div>
+            </div>
+
+            <div class="mt-2 flex gap-2">
+              <input id="searchText" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"
+                placeholder="e.g. acropolis, brunch, rooftop…" />
+              <button id="btnClearSearch" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Clear</button>
+            </div>
+
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <select id="filterFolder" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
+              <select id="filterCategory" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
+            </div>
+
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <button id="btnOnlyHearts" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">♥ Shortlist</button>
+              <button id="btnOnlyPinned" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">📌 Must-do</button>
+            </div>
+          </div>
+
+          <!-- Map search -->
+          <div class="mt-4 p-4 rounded-3xl border bg-white soft-shadow">
+            <div class="flex items-center gap-2">
+              <div class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
+              <div class="text-xs text-zinc-600">Search <b>Athens (Map)</b> — by place name</div>
+            </div>
+
+            <div class="mt-2 flex gap-2">
+              <input id="poiQuery" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"
+                placeholder="Search by place name…" />
+              <button id="btnPoi" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Search</button>
+            </div>
+
+            <div class="mt-2 flex items-center text-[11px] text-zinc-500 gap-2">
+              <span>Click <b>Add</b> to pin.</span>
+              <button id="btnPoiClear" class="btn ml-auto underline hover:opacity-80">Clear</button>
+            </div>
+
+            <div id="poiResults" class="hidden mt-3 border rounded-3xl bg-white overflow-auto scrollbar max-h-64"></div>
+          </div>
+        </div>
+
+        <!-- Scrollable tab area -->
+        <div class="flex-1 min-h-0">
+          <!-- PLACES -->
+          <section id="tab_places" class="px-4 sm:px-5 pb-5 h-full flex flex-col min-h-0">
+            <div class="flex items-center justify-between mb-2 shrink-0">
+              <div class="text-sm font-semibold">My places</div>
+              <div id="placesCount" class="text-xs text-zinc-500"></div>
+            </div>
+            <div id="placesList" class="space-y-3 overflow-auto scrollbar flex-1 min-h-0"></div>
+          </section>
+
+          <!-- ITINERARY -->
+          <section id="tab_itinerary" class="hidden px-4 sm:px-5 pb-5 h-full flex flex-col min-h-0">
+            <div class="p-4 rounded-3xl border bg-white soft-shadow shrink-0">
+              <div class="flex items-center justify-between">
+                <div class="text-sm font-semibold">Itinerary</div>
+                <span class="tag">3-day friendly</span>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 gap-2">
+                <input id="itDate" type="date" class="border rounded-2xl px-3 py-2.5 text-sm bg-white" />
+                <input id="itTime" type="time" class="border rounded-2xl px-3 py-2.5 text-sm bg-white" />
+                <select id="itPlace" class="col-span-2 border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
+                <input id="itNote" class="col-span-2 border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Note (optional)…" />
+              </div>
+
+              <div class="mt-3 flex gap-2">
+                <button id="btnAddIt" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Add</button>
+                <button id="btnToday" class="btn px-4 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Today</button>
+              </div>
+            </div>
+
+            <div id="itineraryList" class="mt-4 space-y-3 overflow-auto scrollbar flex-1 min-h-0"></div>
+          </section>
+
+          <!-- README -->
+          <section id="tab_readme" class="hidden px-4 sm:px-5 pb-5 h-full flex flex-col min-h-0">
+            <div class="space-y-4 overflow-auto scrollbar flex-1 min-h-0">
+              <div class="p-5 rounded-3xl border bg-white soft-shadow">
+                <div class="text-lg font-semibold">README</div>
+                <div class="text-sm text-zinc-600 mt-1">HOW TO FOR LOST PEOPLE.</div>
+
+                <div class="mt-4 grid gap-3 text-sm">
+                  <div class="p-4 rounded-2xl border bg-zinc-50">
+                    <div class="font-semibold">Call it a lazy SOP</div>
+                    <ul class="list-disc pl-5 mt-2 space-y-1 text-zinc-700">
+                      <li>Folders = rename, delete, create.</li>
+                      <li><b>📌 Must-do</b> = what you’ll actually schedule.</li>
+                      <li><b>♥ Shortlist</b> = optional if time.</li>
+                      <li><b>Search Athens (Map)</b> finds places you haven’t added yet → click <b>Add</b>.</li>
+                      <li>Build the schedule in <b>Itinerary</b> (keep it light).</li>
+                    </ul>
+                  </div>
+
+                  <div class="p-4 rounded-2xl border bg-zinc-50">
+                    <div class="font-semibold">Bring your sunscream!</div>
+                    <div class="text-zinc-700 mt-2">
+                      Use this as a <b>light suggestion</b> it’s totally up to you what you’ll plan and how packed (or chill)
+                    </div>
+                    <ul class="list-disc pl-5 mt-2 space-y-1 text-zinc-700">
+                      <li><b>Morning:</b> brunch/breakfast this time of the year and museum visits.</li>
+                      <li><b>Lunch:</b> check if you see is super crouweded might need a small reservation if it's more fancy.</li>
+                      <li><b>Afternoon:</b> Acropolis museum a must in the evening when sun goes down, there's a terrace up from museum but super expensive (tourist trap).</li>
+                      <li><b>Night:</b> we eat late dinners, so not 6pm ahhah but you are italians so you get the vibe.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div class="p-5 rounded-3xl border bg-white soft-shadow">
+                <div class="text-lg font-semibold">Transport (city + airport)</div>
+                <div class="text-sm text-zinc-600 mt-1">Prices from the sites, double-check in case of changes.</div>
+
+                <div class="mt-4 grid gap-3 text-sm">
+                  <div class="p-4 rounded-2xl border bg-zinc-50">
+                    <div class="font-semibold">City tickets</div>
+                    <ul class="list-disc pl-5 mt-2 space-y-1 text-zinc-700">
+                      <li>90-minute: €1.20</li>
+                      <li>24-hour: €4.10</li>
+                      <li>(Check upon arrival just in case they increased it.)</li>
+                    </ul>
+                    <div class="mt-3">
+                      <a class="underline" target="_blank" rel="noreferrer" href="https://www.oasa.gr/en/tickets/prices-of-products/">OASA official prices</a>
+                    </div>
+                  </div>
+
+                  <div class="p-4 rounded-2xl border bg-zinc-50">
+                    <div class="font-semibold">Airport ↔ City</div>
+                    <ul class="list-disc pl-5 mt-2 space-y-1 text-zinc-700">
+                      <li>Metro airport: €9 one-way, €16 two-way</li>
+                      <li>Airport Express bus: €5.50 one-way</li>
+                      <li>Taxi flat fare (center): €40 day / €55 night</li>
+                    </ul>
+                    <div class="mt-3 flex flex-wrap gap-3">
+                      <a class="underline" target="_blank" rel="noreferrer" href="https://www.oasa.gr/en/tickets/prices-of-products/">OASA prices</a>
+                      <a class="underline" target="_blank" rel="noreferrer" href="https://www.oasa.gr/en/visit-athens/airport-express-bus-lines/">Airport Express lines</a>
+                      <a class="underline" target="_blank" rel="noreferrer" href="https://www.aia.gr/en/traveller/transportation-airport/taxi-limousines-transfer">AIA taxi fares</a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="p-5 rounded-3xl border bg-white soft-shadow">
+                <div class="text-lg font-semibold">Backup & share</div>
+                <ul class="list-disc pl-5 mt-2 space-y-1 text-sm text-zinc-700">
+                  <li><b>Export</b> saves your map + itinerary to JSON.</li>
+                  <li><b>Import</b> loads it on another device.</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Map -->
+    <section class="relative bg-zinc-50 map-safe-bottom">
+      <div id="map"></div>
+
+      <div class="absolute bottom-4 left-4 glass border rounded-3xl soft-shadow px-4 py-2 text-xs text-zinc-700">
+        Tip: click the map to auto-fill coordinates in “Add place”.
+      </div>
+
+      <!-- Toasts -->
+      <div id="toastArea" class="absolute top-4 right-4 z-[1200] space-y-2 pointer-events-none"></div>
+    </section>
+  </main>
+
+  <!-- Modal: Add/Edit Place (ONLY ONCE) -->
+  <div id="modal" class="fixed inset-0 hidden items-center justify-center bg-black/50 p-4 z-[2000]">
+    <div class="w-full max-w-3xl bg-white rounded-[28px] soft-shadow border overflow-hidden">
+      <div class="px-5 py-4 border-b flex items-center gap-2">
+        <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+        <div id="modalTitle" class="font-semibold">Add place</div>
+        <button id="btnCloseModal" class="btn ml-auto px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Close</button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-zinc-500">Name</label>
+            <input id="fName" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Place name" />
+          </div>
+
+          <div>
+            <label class="text-xs text-zinc-500">Category</label>
+            <select id="fCategory" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
+          </div>
+
+          <div>
+            <label class="text-xs text-zinc-500">Folder</label>
+            <select id="fFolder" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
+          </div>
+
+          <div>
+            <label class="text-xs text-zinc-500">Neighborhood / vibe</label>
+            <input id="fVibe" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="e.g. chill street, rooftop view…" />
+          </div>
+
+          <div>
+            <label class="text-xs text-zinc-500">Latitude</label>
+            <input id="fLat" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Click map to fill" />
+          </div>
+
+          <div>
+            <label class="text-xs text-zinc-500">Longitude</label>
+            <input id="fLng" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Click map to fill" />
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="text-xs text-zinc-500">Description</label>
+            <textarea id="fDesc" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" rows="3" placeholder="What to do/order, best time, notes…"></textarea>
+          </div>
+
+          <div>
+            <label class="text-xs text-zinc-500">Website link</label>
+            <input id="fLink" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="https://…" />
+          </div>
+
+          <div>
+            <label class="text-xs text-zinc-500">Google Maps link</label>
+            <input id="fGmaps" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="https://maps.google.com/…" />
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="text-xs text-zinc-500">Photo URLs (comma-separated)</label>
+            <input id="fPhotos" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="https://…jpg, https://…png" />
+            <div class="text-xs text-zinc-500 mt-1">Tip: you can host images in your repo and use relative paths.</div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btnSavePlace" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Save</button>
+          <button id="btnDeletePlace" class="btn px-4 py-2.5 rounded-2xl border bg-white text-sm hover:bg-red-50 hidden">Delete</button>
+
+          <div class="ml-auto flex items-center gap-4 text-sm">
+            <label class="flex items-center gap-2">
+              <input id="fFav" type="checkbox" class="accent-black" />
+              <span>♥ Shortlist</span>
+            </label>
+            <label class="flex items-center gap-2">
+              <input id="fPinned" type="checkbox" class="accent-black" />
+              <span>📌 Must-do</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="text-xs text-zinc-500">Map tiles: OpenStreetMap • POI search: Nominatim • Sync: Firebase.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Folder Manager (ONLY ONCE) -->
+  <div id="folderModal" class="fixed inset-0 hidden items-center justify-center bg-black/50 p-4 z-[2000]">
+    <div class="w-full max-w-xl bg-white rounded-[28px] soft-shadow border overflow-hidden">
+      <div class="px-5 py-4 border-b flex items-center">
+        <div class="font-semibold">Folders</div>
+        <button id="btnCloseFolderModal" class="btn ml-auto px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Close</button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <div class="p-4 rounded-3xl border bg-zinc-50">
+          <div class="text-sm font-semibold mb-2">Create folder</div>
+          <div class="flex gap-2">
+            <input id="newFolderName" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Folder name…" />
+            <button id="btnCreateFolder" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Create</button>
+          </div>
+          <div class="text-xs text-zinc-500 mt-2">You can delete <b>any</b> folder. Places will be moved to another folder you choose.</div>
+        </div>
+
+        <div>
+          <div class="text-sm font-semibold mb-2">Your folders</div>
+          <div id="folderList" class="space-y-2 max-h-[44vh] overflow-auto scrollbar"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Delete folder + move places (ONLY ONCE) -->
+  <div id="deleteFolderModal" class="fixed inset-0 hidden items-center justify-center bg-black/50 p-4 z-[2500]">
+    <div class="w-full max-w-lg bg-white rounded-[28px] soft-shadow border overflow-hidden">
+      <div class="px-5 py-4 border-b flex items-center">
+        <div class="font-semibold">Delete folder</div>
+        <button id="btnCloseDeleteFolderModal" class="btn ml-auto px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Close</button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div class="text-sm text-zinc-700">
+          You’re deleting: <b id="delFolderName">—</b>
+        </div>
+
+        <div class="p-4 rounded-3xl border bg-zinc-50">
+          <div class="text-sm font-semibold">Move its places to</div>
+          <select id="delMoveTo" class="mt-2 w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
+          <div class="text-xs text-zinc-500 mt-2">
+            If this is your last folder, the app will create <b>My places</b> automatically.
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button id="btnConfirmDeleteFolder" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Delete</button>
+          <button id="btnCancelDeleteFolder" class="btn px-4 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      "use strict";
+
+      /***********************
+       *  CONFIG
+       ***********************/
+      const STORAGE_KEY = "athens_trip_app_cloud_modern_v1";
+
+      // tries old keys too (so you don't “lose” old local saved data)
+      const STORAGE_KEY_FALLBACKS = [
+        "athens_trip_app_cloud_modern_v1",
+        "athens_trip_app_v1",
+        "athens_trip_app_v2",
+        "athens_trip_app_cloud_v1",
+        "athens_trip_app_cloud_modern",
+        "athens_trip_app"
+      ];
+
+      const CLIENT_ID_KEY = "athens_trip_client_id_v1";
+      const DEFAULT_TRIP_ID = "athens-3days";
+      const urlParams = new URLSearchParams(location.search);
+      const TRIP_ID = (urlParams.get("trip") || DEFAULT_TRIP_ID).trim();
+
+      const DEFAULT_FOLDER_FAV = "Malaka’s favorites";
+
+      const CATEGORIES = [
+        "Brunch","Lunch","Dinner","Drinks","Coffee",
+        "Museum","Historical","Park","Viewpoint",
+        "Shopping","Bakery/Dessert","Beach/Day trip","Other"
+      ];
+
+      function uid(){ return Math.random().toString(16).slice(2) + Date.now().toString(16); }
+      function b2n(v){ return v ? 1 : 0; }
+      function nowMs(){ return Date.now(); }
+
+      function safeClone(obj){
+        return (typeof structuredClone === "function")
+          ? structuredClone(obj)
+          : JSON.parse(JSON.stringify(obj));
+      }
+
+      function getClientId(){
+        let id = localStorage.getItem(CLIENT_ID_KEY);
+        if(!id){
+          id = "c_" + uid();
+          localStorage.setItem(CLIENT_ID_KEY, id);
+        }
+        return id;
+      }
+      const CLIENT_ID = getClientId();
+
+      /***********************
+       *  FIREBASE CONFIG (your project)
+       ***********************/
+      const firebaseConfig = {
+        apiKey: "AIzaSyA4d4KIauh_bj9gKwd9prTbTJPDw_tGi4c",
+        authDomain: "malakas-athens-trip.firebaseapp.com",
+        projectId: "malakas-athens-trip",
+        storageBucket: "malakas-athens-trip.firebasestorage.app",
+        messagingSenderId: "731335410840",
+        appId: "1:731335410840:web:77ba6b8d6e75ed01ab3ced"
+      };
+
+      /***********************
+       *  DEFAULT STATE
+       ***********************/
+      const defaultState = {
+        meta: { updatedAtMs: 0, updatedBy: "", tripId: TRIP_ID },
+        folders: [
+          { id: "f_malakas", name: DEFAULT_FOLDER_FAV },
+          { id: "f_general", name: "Other suggestions" }
+        ],
+        places: [
+          {
+            id: uid(),
+            name: "Acropolis / Parthenon",
+            category: "Historical",
+            folderId: "f_general",
+            vibe: "Iconic — go early to avoid crowds",
+            desc: "Must-see. Combine with Acropolis Museum after.",
+            lat: 37.9715, lng: 23.7267,
+            link: "",
+            gmaps: "https://maps.google.com/?q=Acropolis+of+Athens",
+            photos: [],
+            favorite: true,
+            pinned: true
+          },
+          {
+            id: uid(),
+            name: "National Garden",
+            category: "Park",
+            folderId: "f_general",
+            vibe: "Chill walk near Syntagma",
+            desc: "Good reset spot, shade, quick stroll.",
+            lat: 37.9731, lng: 23.7365,
+            link: "",
+            gmaps: "https://maps.google.com/?q=National+Garden+Athens",
+            photos: [],
+            favorite: false,
+            pinned: false
+          }
+        ],
+        itinerary: [],
+        ui: { heartsOnly: false, pinnedOnly: false }
+      };
+
+      function loadStateFromAnyKey(){
+        for(const k of STORAGE_KEY_FALLBACKS){
+          try{
+            const raw = localStorage.getItem(k);
+            if(!raw) continue;
+            const parsed = JSON.parse(raw);
+            if(parsed && typeof parsed === "object") return { state: parsed, key: k };
+          }catch(_){}
+        }
+        return { state: null, key: null };
+      }
+
+      function normalizeState(s){
+        s = s || safeClone(defaultState);
+        s.meta ??= { updatedAtMs: 0, updatedBy: "", tripId: TRIP_ID };
+        s.folders ??= safeClone(defaultState.folders);
+        s.places ??= safeClone(defaultState.places);
+        s.itinerary ??= [];
+        s.ui ??= { heartsOnly:false, pinnedOnly:false };
+
+        if(!Array.isArray(s.folders) || s.folders.length === 0){
+          s.folders = [{ id:"f_my_"+uid(), name:"My places" }];
+        }
+        if(!Array.isArray(s.places)) s.places = [];
+        if(!Array.isArray(s.itinerary)) s.itinerary = [];
+        s.meta.tripId = TRIP_ID;
+        return s;
+      }
+
+      const loaded = loadStateFromAnyKey();
+      let state = normalizeState(loaded.state || null);
+
+      // migrate to current key
+      if(loaded.key && loaded.key !== STORAGE_KEY){
+        try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(_){}
+      }
+
+      function ensureAtLeastOneFolder(){
+        if(!Array.isArray(state.folders) || state.folders.length === 0){
+          state.folders = [{ id:"f_my_"+uid(), name:"My places" }];
+        }
+      }
+
+      function saveLocal(){
+        try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(_){}
+      }
+
+      /***********************
+       *  TOASTS + HELPERS
+       ***********************/
+      const toastArea = document.getElementById("toastArea");
+      function toast(message){
+        if(!toastArea) return;
+        const el = document.createElement("div");
+        el.className = "pointer-events-none glass border rounded-2xl soft-shadow px-4 py-3 text-sm text-zinc-800";
+        el.textContent = message;
+        toastArea.appendChild(el);
+        setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-4px)"; }, 1800);
+        setTimeout(() => { el.remove(); }, 2400);
+      }
+
+      function folderName(folderId){
+        return (state.folders.find(f => f.id === folderId)?.name) || "Unsorted";
+      }
+      function escapeHtml(str){
+        return String(str ?? "")
+          .replaceAll("&","&amp;")
+          .replaceAll("<","&lt;")
+          .replaceAll(">","&gt;")
+          .replaceAll('"',"&quot;")
+          .replaceAll("'","&#039;");
+      }
+      function escapeAttr(str){ return escapeHtml(str); }
+      function googleMapsLatLng(lat,lng){
+        return `https://maps.google.com/?q=${encodeURIComponent(lat + "," + lng)}`;
+      }
+
+      /***********************
+       *  UI REFS
+       ***********************/
+      const placesListEl = document.getElementById("placesList");
+      const placesCountEl = document.getElementById("placesCount");
+
+      const filterFolderEl = document.getElementById("filterFolder");
+      const filterCategoryEl = document.getElementById("filterCategory");
+      const searchTextEl = document.getElementById("searchText");
+      const btnOnlyHearts = document.getElementById("btnOnlyHearts");
+      const btnOnlyPinned = document.getElementById("btnOnlyPinned");
+
+      const itPlaceEl = document.getElementById("itPlace");
+      const itineraryListEl = document.getElementById("itineraryList");
+
+      const poiQueryEl = document.getElementById("poiQuery");
+      const btnPoiEl = document.getElementById("btnPoi");
+      const btnPoiClearEl = document.getElementById("btnPoiClear");
+      const poiResultsEl = document.getElementById("poiResults");
+
+      // Trip UI
+      const tripIdLabelEl = document.getElementById("tripIdLabel");
+      const btnCopyTripLinkEl = document.getElementById("btnCopyTripLink");
+      if(tripIdLabelEl) tripIdLabelEl.textContent = TRIP_ID;
+      if(btnCopyTripLinkEl){
+        btnCopyTripLinkEl.addEventListener("click", async () => {
+          try{
+            const url = new URL(location.href);
+            url.searchParams.set("trip", TRIP_ID);
+            await navigator.clipboard.writeText(url.toString());
+            toast("Trip link copied.");
+          }catch(_){
+            toast("Copy failed (browser blocked).");
+          }
+        });
+      }
+
+      /***********************
+       *  CLOUD UI
+       ***********************/
+      const cloudStatusEl = document.getElementById("cloudStatus");
+      const cloudDotEl = document.getElementById("cloudDot");
+      const cloudTextEl = document.getElementById("cloudText");
+
+      function setCloudUI(mode, text){
+        if(!cloudStatusEl || !cloudDotEl || !cloudTextEl) return;
+        cloudStatusEl.classList.remove("hidden");
+        cloudTextEl.textContent = text;
+
+        cloudDotEl.classList.remove("bg-zinc-300","bg-emerald-500","bg-amber-500","bg-red-500");
+        if(mode === "on") cloudDotEl.classList.add("bg-emerald-500");
+        else if(mode === "syncing") cloudDotEl.classList.add("bg-amber-500");
+        else if(mode === "error") cloudDotEl.classList.add("bg-red-500");
+        else cloudDotEl.classList.add("bg-zinc-300");
+      }
+
+      /***********************
+       *  MAP
+       ***********************/
+      const map = L.map("map", { zoomControl:true }).setView([37.9838, 23.7275], 13);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(map);
+
+      const markersLayer = L.layerGroup().addTo(map);
+      const poiLayer = L.layerGroup().addTo(map);
+
+      // Leaflet sizing on mobile bottom sheet
+      setTimeout(() => map.invalidateSize(), 250);
+      window.addEventListener("resize", () => map.invalidateSize());
+
+      map.on("click", (e) => {
+        const lat = document.getElementById("fLat");
+        const lng = document.getElementById("fLng");
+        if(lat) lat.value = e.latlng.lat.toFixed(6);
+        if(lng) lng.value = e.latlng.lng.toFixed(6);
+        toast("Coordinates filled from map click.");
+      });
+
+      /***********************
+       *  FILTERED PLACES
+       ***********************/
+      function filteredPlaces(){
+        const folder = filterFolderEl?.value || "__all__";
+        const cat = filterCategoryEl?.value || "__all__";
+        const q = (searchTextEl?.value || "").trim().toLowerCase();
+
+        return state.places
+          .filter(p => folder === "__all__" ? true : p.folderId === folder)
+          .filter(p => cat === "__all__" ? true : p.category === cat)
+          .filter(p => state.ui.heartsOnly ? !!p.favorite : true)
+          .filter(p => state.ui.pinnedOnly ? !!p.pinned : true)
+          .filter(p => {
+            if(!q) return true;
+            const hay = [p.name, p.category, folderName(p.folderId), p.vibe, p.desc].join(" ").toLowerCase();
+            return hay.includes(q);
+          })
+          .sort((a,b) => {
+            const score = (b2n(b.pinned) - b2n(a.pinned)) || (b2n(b.favorite) - b2n(a.favorite));
+            if(score) return score;
+            return (a.name||"").localeCompare(b.name||"");
+          });
+      }
+
+      /***********************
+       *  MARKERS + LIST
+       ***********************/
+      function makePopupHTML(place){
+        const photos = (place.photos || []).filter(Boolean);
+        const photoHTML = photos.length
+          ? `<img src="${escapeHtml(photos[0])}" alt="" class="w-full h-40 object-cover rounded-2xl border mb-2" onerror="this.style.display='none'">`
+          : "";
+
+        const links = `
+          <div class="flex flex-wrap gap-3 mt-2 text-sm">
+            ${place.gmaps ? `<a target="_blank" rel="noreferrer" class="underline" href="${escapeAttr(place.gmaps)}">Google Maps</a>` : ""}
+            ${place.link ? `<a target="_blank" rel="noreferrer" class="underline" href="${escapeAttr(place.link)}">Website</a>` : ""}
+          </div>
+        `;
+
+        return `
+          <div class="w-[280px]">
+            ${photoHTML}
+            <div class="font-semibold">${escapeHtml(place.name || "Untitled")}</div>
+            <div class="text-xs text-zinc-600">${escapeHtml(place.category || "Other")} • ${escapeHtml(folderName(place.folderId))}</div>
+            ${place.vibe ? `<div class="text-xs mt-1">${escapeHtml(place.vibe)}</div>` : ""}
+            ${place.desc ? `<div class="text-xs mt-1 line-clamp-3">${escapeHtml(place.desc)}</div>` : ""}
+            ${links}
+            <div class="flex gap-2 mt-3">
+              <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.toggleFavorite('${place.id}')">${place.favorite ? "Unheart" : "Heart"} ♥</button>
+              <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.togglePinned('${place.id}')">${place.pinned ? "Unpin" : "Pin"} 📌</button>
+              <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.openEdit('${place.id}')">Edit</button>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderMarkers(){
+        markersLayer.clearLayers();
+        filteredPlaces().forEach(p => {
+          if(!isFinite(p.lat) || !isFinite(p.lng)) return;
+          const m = L.marker([p.lat, p.lng]).addTo(markersLayer);
+          m.bindPopup(makePopupHTML(p));
+        });
+      }
+
+      function placeCard(place){
+        const photos = (place.photos || []).filter(Boolean);
+        const thumb = photos[0];
+        const badge = place.pinned ? "📌" : (place.favorite ? "♥" : "");
+
+        return `
+          <div class="p-4 rounded-3xl border bg-white hover:shadow-sm transition-shadow">
+            <div class="flex gap-3">
+              <div class="w-20 h-20 rounded-2xl border bg-zinc-100 overflow-hidden flex items-center justify-center text-xs text-zinc-500 shrink-0">
+                ${thumb ? `<img src="${escapeAttr(thumb)}" class="w-full h-full object-cover" onerror="this.parentElement.textContent='No photo'">` : "No photo"}
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <div class="flex items-start gap-2">
+                  <div class="font-semibold truncate">${escapeHtml(place.name || "Untitled")}</div>
+                  <div class="ml-auto flex items-center gap-2">
+                    ${badge ? `<span class="tag">${badge}</span>` : ""}
+                    <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.toggleFavorite('${place.id}')">${place.favorite ? "♥" : "♡"}</button>
+                    <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.togglePinned('${place.id}')">${place.pinned ? "📌" : "📍"}</button>
+                  </div>
+                </div>
+
+                <div class="text-xs text-zinc-600 mt-0.5">
+                  ${escapeHtml(place.category || "Other")} • ${escapeHtml(folderName(place.folderId))}
+                </div>
+
+                ${place.vibe ? `<div class="text-xs text-zinc-700 mt-2 line-clamp-2">${escapeHtml(place.vibe)}</div>` : ""}
+
+                <div class="flex flex-wrap gap-2 mt-3">
+                  <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.flyToPlace('${place.id}')">View</button>
+                  <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.openEdit('${place.id}')">Edit</button>
+                  ${place.gmaps ? `<a class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" target="_blank" rel="noreferrer" href="${escapeAttr(place.gmaps)}">Maps</a>` : ""}
+                  ${place.link ? `<a class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" target="_blank" rel="noreferrer" href="${escapeAttr(place.link)}">Link</a>` : ""}
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      // group places by Folder; pinned first
+      function renderPlacesList(){
+        const items = filteredPlaces();
+        if(placesCountEl) placesCountEl.textContent = `${items.length} shown`;
+
+        if(!items.length){
+          if(placesListEl){
+            placesListEl.innerHTML = `
+              <div class="p-5 rounded-3xl border bg-zinc-50 text-sm text-zinc-600">
+                No results in <b>My places</b>.
+                <ul class="list-disc pl-5 mt-2 space-y-1">
+                  <li>Clear folder/category filters</li>
+                  <li>Turn off ♥ / 📌 toggles</li>
+                  <li>Use <b>Search Athens (Map)</b> and click <b>Add</b></li>
+                </ul>
+              </div>
+            `;
+          }
+          return;
+        }
+
+        const grouped = new Map();
+        for(const p of items){
+          const key = p.folderId || "__none__";
+          if(!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key).push(p);
+        }
+
+        const orderedFolderIds = [
+          ...state.folders.map(f => f.id),
+          ...Array.from(grouped.keys()).filter(id => !state.folders.some(f => f.id === id))
+        ].filter((v, i, a) => a.indexOf(v) === i);
+
+        const html = orderedFolderIds
+          .filter(fid => grouped.has(fid))
+          .map(fid => {
+            const folderPlaces = grouped.get(fid) || [];
+            const pinned = folderPlaces.filter(p => p.pinned);
+            const rest = folderPlaces.filter(p => !p.pinned);
+
+            const folderTitle = escapeHtml(folderName(fid));
+            const countPinned = pinned.length;
+
+            return `
+              <div class="p-4 rounded-3xl border bg-white">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="font-semibold truncate">${folderTitle}</div>
+                    <div class="text-xs text-zinc-500 mt-0.5">
+                      ${folderPlaces.length} place${folderPlaces.length===1?"":"s"}
+                      ${countPinned ? ` • <span class="font-semibold text-zinc-800">${countPinned} pinned</span>` : ""}
+                    </div>
+                  </div>
+                  ${countPinned ? `<span class="tag">📌 Pinned first</span>` : `<span class="tag">—</span>`}
+                </div>
+
+                ${pinned.length ? `
+                  <div class="mt-3">
+                    <div class="text-xs font-semibold text-zinc-700 mb-2">📌 Must-do</div>
+                    <div class="space-y-3">
+                      ${pinned.map(placeCard).join("")}
+                    </div>
+                  </div>
+                ` : ""}
+
+                ${rest.length ? `
+                  <div class="mt-3">
+                    <div class="text-xs font-semibold text-zinc-700 mb-2">Other</div>
+                    <div class="space-y-3">
+                      ${rest.map(placeCard).join("")}
+                    </div>
+                  </div>
+                ` : ""}
+              </div>
+            `;
+          })
+          .join("");
+
+        if(placesListEl) placesListEl.innerHTML = html;
+      }
+
+      /***********************
+       *  TABS
+       ***********************/
+      document.querySelectorAll(".tabBtn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const tab = btn.dataset.tab;
+
+          document.querySelectorAll(".tabBtn").forEach(b => {
+            b.className = "tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50";
+          });
+          btn.className = "tabBtn btn px-3 py-2 rounded-2xl bg-black text-white text-sm";
+
+          document.getElementById("tab_places").classList.toggle("hidden", tab !== "places");
+          document.getElementById("tab_itinerary").classList.toggle("hidden", tab !== "itinerary");
+          document.getElementById("tab_readme").classList.toggle("hidden", tab !== "readme");
+
+          setTimeout(() => map.invalidateSize(), 250);
+        });
+      });
+
+      /***********************
+       *  DROPDOWNS
+       ***********************/
+      function populateFilters(){
+        ensureAtLeastOneFolder();
+        if(filterFolderEl){
+          filterFolderEl.innerHTML = `
+            <option value="__all__">All folders</option>
+            ${state.folders.map(f => `<option value="${escapeAttr(f.id)}">${escapeHtml(f.name)}</option>`).join("")}
+          `;
+        }
+        if(filterCategoryEl){
+          filterCategoryEl.innerHTML = `
+            <option value="__all__">All categories</option>
+            ${CATEGORIES.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join("")}
+          `;
+        }
+      }
+
+      function populateFormDropdowns(){
+        ensureAtLeastOneFolder();
+
+        const fCategory = document.getElementById("fCategory");
+        const fFolder = document.getElementById("fFolder");
+
+        if(fCategory){
+          fCategory.innerHTML = CATEGORIES.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join("");
+        }
+        if(fFolder){
+          fFolder.innerHTML = state.folders.map(f => `<option value="${escapeAttr(f.id)}">${escapeHtml(f.name)}</option>`).join("");
+        }
+
+        if(itPlaceEl){
+          itPlaceEl.innerHTML = state.places
+            .slice()
+            .sort((a,b) => (a.name||"").localeCompare(b.name||""))
+            .map(p => `<option value="${escapeAttr(p.id)}">${escapeHtml(p.name || "Untitled")} (${escapeHtml(p.category || "Other")})</option>`)
+            .join("");
+        }
+      }
+
+      /***********************
+       *  MODAL (ADD/EDIT)
+       ***********************/
+      const modal = document.getElementById("modal");
+      const modalTitle = document.getElementById("modalTitle");
+      const btnCloseModal = document.getElementById("btnCloseModal");
+      const btnSavePlace = document.getElementById("btnSavePlace");
+      const btnDeletePlace = document.getElementById("btnDeletePlace");
+      let editingPlaceId = null;
+
+      function openModal(mode, place){
+        ensureAtLeastOneFolder();
+        populateFormDropdowns();
+
+        modal.classList.remove("hidden");
+        modal.classList.add("flex");
+
+        editingPlaceId = place?.id || null;
+        modalTitle.textContent = (mode === "edit") ? "Edit place" : "Add place";
+        btnDeletePlace.classList.toggle("hidden", mode !== "edit");
+
+        document.getElementById("fName").value = place?.name || "";
+        document.getElementById("fCategory").value = place?.category || "Other";
+        document.getElementById("fFolder").value = place?.folderId || state.folders[0]?.id;
+        document.getElementById("fVibe").value = place?.vibe || "";
+        document.getElementById("fLat").value = isFinite(place?.lat) ? place.lat : "";
+        document.getElementById("fLng").value = isFinite(place?.lng) ? place.lng : "";
+        document.getElementById("fDesc").value = place?.desc || "";
+        document.getElementById("fLink").value = place?.link || "";
+        document.getElementById("fGmaps").value = place?.gmaps || "";
+        document.getElementById("fPhotos").value = (place?.photos || []).join(", ");
+        document.getElementById("fFav").checked = !!place?.favorite;
+        document.getElementById("fPinned").checked = !!place?.pinned;
+
+        setTimeout(() => document.getElementById("fName").focus(), 50);
+      }
+
+      function closeModal(){
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+        editingPlaceId = null;
+      }
+
+      btnCloseModal.addEventListener("click", closeModal);
+      modal.addEventListener("click", (e) => { if(e.target === modal) closeModal(); });
+
+      document.getElementById("btnAddPlace").addEventListener("click", () => openModal("add", null));
+
+      window.openEdit = (id) => {
+        const p = state.places.find(x => x.id === id);
+        if(!p) return;
+        openModal("edit", p);
+      };
+
+      btnSavePlace.addEventListener("click", () => {
+        ensureAtLeastOneFolder();
+
+        const place = {
+          id: editingPlaceId || uid(),
+          name: document.getElementById("fName").value.trim() || "Untitled",
+          category: document.getElementById("fCategory").value,
+          folderId: document.getElementById("fFolder").value,
+          vibe: document.getElementById("fVibe").value.trim(),
+          desc: document.getElementById("fDesc").value.trim(),
+          lat: parseFloat(document.getElementById("fLat").value),
+          lng: parseFloat(document.getElementById("fLng").value),
+          link: document.getElementById("fLink").value.trim(),
+          gmaps: document.getElementById("fGmaps").value.trim(),
+          photos: document.getElementById("fPhotos").value.split(",").map(s => s.trim()).filter(Boolean),
+          favorite: document.getElementById("fFav").checked,
+          pinned: document.getElementById("fPinned").checked
+        };
+
+        if(!isFinite(place.lat) || !isFinite(place.lng)){
+          alert("Please set a valid latitude/longitude (click the map, or paste coordinates).");
+          return;
+        }
+
+        const idx = state.places.findIndex(x => x.id === place.id);
+        if(idx >= 0) state.places[idx] = place;
+        else state.places.push(place);
+
+        touchState("Saved place");
+        populateFilters();
+        populateFormDropdowns();
+        renderAll();
+        closeModal();
+      });
+
+      btnDeletePlace.addEventListener("click", () => {
+        if(!editingPlaceId) return;
+        const p = state.places.find(x => x.id === editingPlaceId);
+        if(!p) return;
+        if(!confirm(`Delete "${p.name}"?`)) return;
+
+        state.places = state.places.filter(x => x.id !== editingPlaceId);
+        state.itinerary = state.itinerary.filter(e => e.placeId !== editingPlaceId);
+
+        touchState("Deleted place");
+        populateFilters();
+        populateFormDropdowns();
+        renderAll();
+        closeModal();
+      });
+
+      /***********************
+       *  HEARTS / PINS / VIEW
+       ***********************/
+      window.toggleFavorite = (id) => {
+        const p = state.places.find(x => x.id === id);
+        if(!p) return;
+        p.favorite = !p.favorite;
+        touchState(p.favorite ? "Added to shortlist ♥" : "Removed from shortlist");
+        renderAll();
+      };
+
+      window.togglePinned = (id) => {
+        const p = state.places.find(x => x.id === id);
+        if(!p) return;
+        p.pinned = !p.pinned;
+        touchState(p.pinned ? "Pinned 📌" : "Unpinned");
+        renderAll();
+      };
+
+      window.flyToPlace = (id) => {
+        const p = state.places.find(x => x.id === id);
+        if(!p || !isFinite(p.lat) || !isFinite(p.lng)) return;
+        map.flyTo([p.lat, p.lng], 16, { duration: 0.8 });
+        setTimeout(() => renderMarkers(), 250);
+      };
+
+      /***********************
+       *  SEARCH + FILTER EVENTS
+       ***********************/
+      function styleToggleButtons(){
+        btnOnlyHearts.classList.toggle("bg-black", !!state.ui.heartsOnly);
+        btnOnlyHearts.classList.toggle("text-white", !!state.ui.heartsOnly);
+        btnOnlyHearts.classList.toggle("border-black", !!state.ui.heartsOnly);
+
+        btnOnlyPinned.classList.toggle("bg-black", !!state.ui.pinnedOnly);
+        btnOnlyPinned.classList.toggle("text-white", !!state.ui.pinnedOnly);
+        btnOnlyPinned.classList.toggle("border-black", !!state.ui.pinnedOnly);
+      }
+
+      filterFolderEl.addEventListener("change", () => renderAll());
+      filterCategoryEl.addEventListener("change", () => renderAll());
+      searchTextEl.addEventListener("input", () => renderAll());
+
+      document.getElementById("btnClearSearch").addEventListener("click", () => {
+        searchTextEl.value = "";
+        renderAll();
+        searchTextEl.focus();
+      });
+
+      btnOnlyHearts.addEventListener("click", () => {
+        state.ui.heartsOnly = !state.ui.heartsOnly;
+        touchState("Filter updated");
+        styleToggleButtons();
+        renderAll();
+      });
+
+      btnOnlyPinned.addEventListener("click", () => {
+        state.ui.pinnedOnly = !state.ui.pinnedOnly;
+        touchState("Filter updated");
+        styleToggleButtons();
+        renderAll();
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if(e.key === "Escape"){
+          if(document.activeElement === searchTextEl || searchTextEl.value){
+            searchTextEl.value = "";
+            renderAll();
+          }
+          poiResultsEl.classList.add("hidden");
+        }
+        if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k"){
+          e.preventDefault();
+          poiQueryEl.focus();
+        }
+      });
+
+      /***********************
+       *  ITINERARY
+       ***********************/
+      function renderItinerary(){
+        const byDate = {};
+        state.itinerary.forEach(e => ((byDate[e.date] ??= []).push(e)));
+        Object.keys(byDate).forEach(d => byDate[d].sort((a,b) => (a.time||"").localeCompare(b.time||"")));
+
+        const dates = Object.keys(byDate).sort();
+
+        itineraryListEl.innerHTML = dates.length ? dates.map(date => {
+          const items = byDate[date];
+          return `
+            <div class="p-4 rounded-3xl border bg-white">
+              <div class="flex items-center justify-between">
+                <div class="font-semibold">${escapeHtml(date)}</div>
+                <span class="tag">${items.length} item${items.length===1?"":"s"}</span>
+              </div>
+
+              <div class="mt-3 space-y-2">
+                ${items.map(item => {
+                  const p = state.places.find(x => x.id === item.placeId);
+                  const name = p?.name || "(deleted place)";
+                  return `
+                    <div class="p-3 rounded-2xl border bg-zinc-50 flex gap-2 items-start">
+                      <div class="text-xs font-semibold w-16">${escapeHtml(item.time || "--:--")}</div>
+                      <div class="min-w-0 flex-1">
+                        <div class="text-sm font-semibold truncate">${escapeHtml(name)}</div>
+                        ${item.note ? `<div class="text-xs text-zinc-600 mt-1">${escapeHtml(item.note)}</div>` : ""}
+                        ${p?.gmaps ? `<a class="text-xs underline mt-1 inline-block" target="_blank" rel="noreferrer" href="${escapeAttr(p.gmaps)}">Directions</a>` : ""}
+                      </div>
+                      <div class="flex gap-1">
+                        <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-white" onclick="window.flyToPlace('${item.placeId}')">Map</button>
+                        <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-red-50" onclick="window.deleteIt('${item.id}')">Delete</button>
+                      </div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+          `;
+        }).join("") : `<div class="p-5 rounded-3xl border bg-zinc-50 text-sm text-zinc-600">No itinerary items yet.</div>`;
+      }
+
+      window.deleteIt = (id) => {
+        state.itinerary = state.itinerary.filter(x => x.id !== id);
+        touchState("Removed itinerary item");
+        renderItinerary();
+      };
+
+      document.getElementById("btnAddIt").addEventListener("click", () => {
+        const date = document.getElementById("itDate").value;
+        const time = document.getElementById("itTime").value || "09:00";
+        const placeId = document.getElementById("itPlace").value;
+        const note = document.getElementById("itNote").value.trim();
+
+        if(!date){ alert("Pick a date first."); return; }
+        if(!placeId){ alert("Pick a place."); return; }
+
+        state.itinerary.push({ id:"it_"+uid(), date, time, placeId, note });
+        document.getElementById("itNote").value = "";
+
+        touchState("Added to itinerary");
+        renderItinerary();
+      });
+
+      document.getElementById("btnToday").addEventListener("click", () => {
+        const d = new Date();
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth()+1).padStart(2,"0");
+        const dd = String(d.getDate()).padStart(2,"0");
+        document.getElementById("itDate").value = `${yyyy}-${mm}-${dd}`;
+        document.getElementById("itTime").value = "10:00";
+        toast("Set to today.");
+      });
+
+      /***********************
+       *  EXPORT / IMPORT / RESET
+       ***********************/
+      document.getElementById("btnExport").addEventListener("click", () => {
+        const blob = new Blob([JSON.stringify(state, null, 2)], { type:"application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `athens-trip-${TRIP_ID}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast("Exported JSON.");
+      });
+
+      document.getElementById("fileImport").addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        if(!file) return;
+        try{
+          const text = await file.text();
+          const imported = JSON.parse(text);
+          state = normalizeState(imported);
+
+          touchState("Imported");
+          initUI();
+          renderAll();
+          toast("Imported!");
+        }catch(err){
+          alert("Import failed: " + (err && err.message ? err.message : "unknown error"));
+        }finally{
+          e.target.value = "";
+        }
+      });
+
+      document.getElementById("btnReset").addEventListener("click", () => {
+        if(!confirm("Reset EVERYTHING to defaults?")) return;
+        state = normalizeState(null);
+        touchState("Reset");
+        initUI();
+        renderAll();
+        toast("Reset complete.");
+      });
+
+      /***********************
+       *  FOLDERS
+       ***********************/
+      const folderModal = document.getElementById("folderModal");
+      const folderListEl = document.getElementById("folderList");
+
+      document.getElementById("btnFolders").addEventListener("click", openFolderModal);
+      document.getElementById("btnCloseFolderModal").addEventListener("click", closeFolderModal);
+      folderModal.addEventListener("click", (e) => { if(e.target === folderModal) closeFolderModal(); });
+
+      document.getElementById("btnAddFolder").addEventListener("click", () => {
+        openFolderModal();
+        document.getElementById("newFolderName").focus();
+      });
+
+      function openFolderModal(){
+        folderModal.classList.remove("hidden");
+        folderModal.classList.add("flex");
+        renderFolderList();
+      }
+      function closeFolderModal(){
+        folderModal.classList.add("hidden");
+        folderModal.classList.remove("flex");
+        document.getElementById("newFolderName").value = "";
+      }
+
+      function renderFolderList(){
+        ensureAtLeastOneFolder();
+        folderListEl.innerHTML = state.folders.map(f => {
+          const count = state.places.filter(p => p.folderId === f.id).length;
+          return `
+            <div class="p-4 rounded-3xl border bg-white flex items-center gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold truncate">${escapeHtml(f.name)}</div>
+                <div class="text-xs text-zinc-500">${count} place${count===1?"":"s"}</div>
+              </div>
+              <button class="btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50" onclick="window.renameFolder('${f.id}')">Rename</button>
+              <button class="btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-red-50" onclick="window.askDeleteFolder('${f.id}')">Delete</button>
+            </div>
+          `;
+        }).join("");
+      }
+
+      document.getElementById("btnCreateFolder").addEventListener("click", () => {
+        const input = document.getElementById("newFolderName");
+        const name = (input.value || "").trim();
+        if(!name) return;
+
+        if(state.folders.some(f => f.name.toLowerCase() === name.toLowerCase())){
+          alert("A folder with that name already exists.");
+          return;
+        }
+
+        state.folders.push({ id:"f_"+uid(), name });
+        input.value = "";
+
+        touchState("Folder created");
+        populateFilters();
+        populateFormDropdowns();
+        renderFolderList();
+        renderAll();
+      });
+
+      window.renameFolder = (folderId) => {
+        const f = state.folders.find(x => x.id === folderId);
+        if(!f) return;
+        const newName = prompt("New folder name:", f.name);
+        if(!newName) return;
+        f.name = newName.trim();
+
+        touchState("Folder renamed");
+        populateFilters();
+        populateFormDropdowns();
+        renderFolderList();
+        renderAll();
+      };
+
+      /***********************
+       *  DELETE FOLDER FLOW
+       ***********************/
+      const deleteFolderModal = document.getElementById("deleteFolderModal");
+      const delFolderNameEl = document.getElementById("delFolderName");
+      const delMoveToEl = document.getElementById("delMoveTo");
+
+      const btnCloseDeleteFolderModal = document.getElementById("btnCloseDeleteFolderModal");
+      const btnCancelDeleteFolder = document.getElementById("btnCancelDeleteFolder");
+      const btnConfirmDeleteFolder = document.getElementById("btnConfirmDeleteFolder");
+
+      btnCloseDeleteFolderModal.addEventListener("click", closeDeleteFolderModal);
+      btnCancelDeleteFolder.addEventListener("click", closeDeleteFolderModal);
+      deleteFolderModal.addEventListener("click", (e) => { if(e.target === deleteFolderModal) closeDeleteFolderModal(); });
+
+      let pendingDeleteFolderId = null;
+
+      function openDeleteFolderModal(folderId){
+        ensureAtLeastOneFolder();
+        pendingDeleteFolderId = folderId;
+        const f = state.folders.find(x => x.id === folderId);
+        delFolderNameEl.textContent = f?.name || "Unknown";
+
+        const otherFolders = state.folders.filter(x => x.id !== folderId);
+        if(otherFolders.length === 0){
+          delMoveToEl.innerHTML = `<option value="__auto__">Auto-create “My places”</option>`;
+        }else{
+          delMoveToEl.innerHTML = otherFolders
+            .map(x => `<option value="${escapeAttr(x.id)}">${escapeHtml(x.name)}</option>`)
+            .join("");
+        }
+
+        deleteFolderModal.classList.remove("hidden");
+        deleteFolderModal.classList.add("flex");
+      }
+
+      function closeDeleteFolderModal(){
+        pendingDeleteFolderId = null;
+        deleteFolderModal.classList.add("hidden");
+        deleteFolderModal.classList.remove("flex");
+      }
+
+      window.askDeleteFolder = (folderId) => openDeleteFolderModal(folderId);
+
+      btnConfirmDeleteFolder.addEventListener("click", () => {
+        const folderId = pendingDeleteFolderId;
+        if(!folderId) return;
+
+        let destId = delMoveToEl.value;
+        const otherFolders = state.folders.filter(x => x.id !== folderId);
+
+        if(otherFolders.length === 0 || destId === "__auto__"){
+          const newFolder = { id:"f_my_"+uid(), name:"My places" };
+          state.folders.push(newFolder);
+          destId = newFolder.id;
+        }
+
+        state.places.forEach(p => { if(p.folderId === folderId) p.folderId = destId; });
+        state.folders = state.folders.filter(x => x.id !== folderId);
+
+        ensureAtLeastOneFolder();
+
+        touchState("Folder deleted (places moved)");
+        populateFilters();
+        populateFormDropdowns();
+        renderFolderList();
+        renderAll();
+        closeDeleteFolderModal();
+      });
+
+      /***********************
+       *  POI SEARCH (Nominatim)
+       ***********************/
+      let poiResults = [];
+      const poiMarkersById = new Map();
+
+      function clearPoiResults(){
+        poiResults = [];
+        poiMarkersById.clear();
+        poiLayer.clearLayers();
+        poiResultsEl.classList.add("hidden");
+        poiResultsEl.innerHTML = "";
+        toast("Cleared map results.");
+      }
+
+      btnPoiClearEl.addEventListener("click", (e) => {
+        e.preventDefault();
+        clearPoiResults();
+      });
+
+      async function runPoiSearch(){
+        const q = (poiQueryEl.value || "").trim();
+        if(!q) return;
+
+        poiResultsEl.classList.remove("hidden");
+        poiResultsEl.innerHTML = `<div class="p-4 text-sm text-zinc-600">Searching Athens…</div>`;
+
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=10&countrycodes=gr`;
+
+        try{
+          const res = await fetch(url, { headers: { "Accept":"application/json" } });
+          const data = await res.json();
+
+          if(!Array.isArray(data) || data.length === 0){
+            poiResultsEl.innerHTML = `<div class="p-4 text-sm text-zinc-600">No results.</div>`;
+            poiLayer.clearLayers();
+            return;
+          }
+
+          poiResults = data.map((d, idx) => ({
+            id: `poi_${idx}_${String(d.place_id || "")}`,
+            name: (d.display_name || "Result").split(",")[0],
+            display_name: d.display_name || "Result",
+            lat: parseFloat(d.lat),
+            lon: parseFloat(d.lon)
+          })).filter(x => isFinite(x.lat) && isFinite(x.lon));
+
+          poiLayer.clearLayers();
+          poiMarkersById.clear();
+
+          poiResults.forEach(r => {
+            const m = L.circleMarker([r.lat, r.lon], {
+              radius: 8,
+              weight: 2,
+              color: "#111",
+              fillColor: "#10b981",
+              fillOpacity: 0.5
+            }).addTo(poiLayer);
+
+            m.bindPopup(`
+              <div class="w-[280px]">
+                <div class="font-semibold">${escapeHtml(r.name)}</div>
+                <div class="text-xs text-zinc-600 mt-1">${escapeHtml(r.display_name)}</div>
+                <div class="mt-2 flex gap-2">
+                  <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.poiZoom('${r.id}')">Zoom</button>
+                  <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.poiAdd('${r.id}')">Add</button>
+                </div>
+              </div>
+            `);
+
+            poiMarkersById.set(r.id, m);
+          });
+
+          poiResultsEl.innerHTML = poiResults.map(r => `
+            <div class="px-4 py-3 border-b last:border-b-0 hover:bg-zinc-50">
+              <div class="flex items-start gap-2">
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-semibold truncate">${escapeHtml(r.name)}</div>
+                  <div class="text-xs text-zinc-600 line-clamp-2">${escapeHtml(r.display_name)}</div>
+                </div>
+                <div class="flex gap-2">
+                  <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-white" onclick="window.poiZoom('${r.id}')">Zoom</button>
+                  <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-white" onclick="window.poiAdd('${r.id}')">Add</button>
+                </div>
+              </div>
+            </div>
+          `).join("");
+
+          const first = poiResults[0];
+          if(first) map.flyTo([first.lat, first.lon], 15, { duration: 0.8 });
+          toast("Map results loaded.");
+        }catch(e){
+          poiResultsEl.innerHTML = `<div class="p-4 text-sm text-zinc-600">Search failed.</div>`;
+        }
+      }
+
+      btnPoiEl.addEventListener("click", runPoiSearch);
+      poiQueryEl.addEventListener("keydown", (e) => { if(e.key === "Enter") runPoiSearch(); });
+
+      window.poiZoom = (poiId) => {
+        const r = poiResults.find(x => x.id === poiId);
+        if(!r) return;
+        map.flyTo([r.lat, r.lon], 16, { duration: 0.8 });
+        const m = poiMarkersById.get(poiId);
+        if(m) setTimeout(() => m.openPopup(), 350);
+      };
+
+      window.poiAdd = (poiId) => {
+        const r = poiResults.find(x => x.id === poiId);
+        if(!r) return;
+
+        openModal("add", {
+          name: r.name,
+          category: "Other",
+          folderId: state.folders[0]?.id,
+          vibe: "",
+          desc: "",
+          lat: r.lat,
+          lng: r.lon,
+          link: "",
+          gmaps: googleMapsLatLng(r.lat, r.lon),
+          photos: [],
+          favorite: false,
+          pinned: false
+        });
+
+        toast("Ready to add pin (check details, then Save).");
+      };
+
+      /***********************
+       *  RENDER ALL + INIT
+       ***********************/
+      function renderAll(){
+        renderPlacesList();
+        renderMarkers();
+        renderItinerary();
+      }
+
+      function initUI(){
+        populateFilters();
+        populateFormDropdowns();
+        renderFolderList();
+        styleToggleButtons();
+      }
+
+      /***********************
+       *  CLOUD SYNC (Firebase)
+       ***********************/
+      let firebaseEnabled = false;
+      let db = null;
+      let tripDocRef = null;
+      let lastUploadedUpdatedAt = 0;
+      let isApplyingRemote = false;
+      let saveTimer = null;
+
+      function scheduleCloudSave(){
+        if(!firebaseEnabled) return;
+        if(isApplyingRemote) return;
+        if(saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => { pushToCloud(); }, 800);
+      }
+
+      function touchState(message){
+        state.meta = state.meta || { updatedAtMs: 0, updatedBy: "", tripId: TRIP_ID };
+        state.meta.updatedAtMs = nowMs();
+        state.meta.updatedBy = CLIENT_ID;
+        state.meta.tripId = TRIP_ID;
+
+        saveLocal();
+        scheduleCloudSave();
+        if(message) toast(message);
+      }
+
+      async function pushToCloud(){
+        if(!firebaseEnabled || !db || !tripDocRef) return;
+
+        const localUpdatedAt = state?.meta?.updatedAtMs || 0;
+        if(localUpdatedAt <= lastUploadedUpdatedAt) return;
+
+        setCloudUI("syncing", "Cloud: syncing…");
+
+        try{
+          await tripDocRef.set({
+            tripId: TRIP_ID,
+            updatedAtMs: localUpdatedAt,
+            updatedBy: state.meta.updatedBy || CLIENT_ID,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            state
+          }, { merge: true });
+
+          lastUploadedUpdatedAt = localUpdatedAt;
+          setCloudUI("on", "Cloud: synced");
+        }catch(e){
+          console.warn("pushToCloud failed:", e);
+          setCloudUI("error", "Cloud: error");
+        }
+      }
+
+      async function applyRemoteState(remote){
+        if(!remote?.state) return;
+
+        const remoteUpdatedAt = remote.updatedAtMs || 0;
+        const localUpdatedAt = state?.meta?.updatedAtMs || 0;
+
+        if(remoteUpdatedAt > localUpdatedAt){
+          isApplyingRemote = true;
+          try{
+            state = normalizeState(remote.state);
+            state.meta.updatedAtMs = remoteUpdatedAt;
+            state.meta.updatedBy = remote.updatedBy || state.meta.updatedBy || "";
+            saveLocal();
+
+            initUI();
+            renderAll();
+
+            lastUploadedUpdatedAt = Math.max(lastUploadedUpdatedAt, remoteUpdatedAt);
+            toast("Synced from cloud.");
+          } finally {
+            isApplyingRemote = false;
+          }
+        }
+      }
+
+      async function initFirebase(){
+        try{
+          setCloudUI("syncing", "Cloud: connecting…");
+
+          // prevent "already exists" error when hot reloading
+          if(firebase.apps && firebase.apps.length === 0){
+            firebase.initializeApp(firebaseConfig);
+          }else if(!firebase.apps){
+            firebase.initializeApp(firebaseConfig);
+          }
+
+          const auth = firebase.auth();
+          await auth.signInAnonymously();
+
+          db = firebase.firestore();
+          tripDocRef = db.collection("trips").doc(TRIP_ID);
+          firebaseEnabled = true;
+
+          setCloudUI("on", "Cloud: connected");
+
+          const snap = await tripDocRef.get();
+          if(snap.exists){
+            await applyRemoteState(snap.data());
+          } else {
+            // first time: push whatever is local (or defaults) up to cloud
+            touchState(null);
+            await pushToCloud();
+          }
+
+          // Listen for remote changes
+          tripDocRef.onSnapshot(async (snap2) => {
+            if(!snap2.exists) return;
+            const data2 = snap2.data();
+            const remoteUpdatedAt = data2.updatedAtMs || 0;
+            if(remoteUpdatedAt <= (state?.meta?.updatedAtMs || 0)) return;
+            await applyRemoteState(data2);
+          });
+
+        }catch(e){
+          console.warn("Firebase init failed:", e);
+          setCloudUI("error", "Cloud: error");
+          // UI still works locally
+        }
+      }
+
+      /***********************
+       *  START
+       ***********************/
+      initUI();
+      renderAll();
+      setCloudUI("off", "Cloud: off");
+      initFirebase();
+
+    })();
+  </script>
+</body>
+</html>
