@@ -2,11 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Malaka’s Athens Trip Map</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover" />
+  <title>Malaka's Athens Trip Map</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        }
+      }
+    }
+  </script>
 
   <!-- Leaflet (CDN) -->
   <link
@@ -27,78 +41,107 @@
   <script src="https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore-compat.js"></script>
 
   <style>
-    :root{ --header-h: 72px; }
-
-    /* Use dvh to avoid iOS Safari 100vh issues */
-    html, body { height: 100%; }
-    body { overflow: hidden; }
-
-    /* App area under header */
-    main{
-      height: calc(100dvh - var(--header-h));
-      overflow: hidden; /* prevent page double scroll */
+    :root {
+      --header-h: 56px;
+      --clr-primary: #111827;
+      --clr-accent: #10b981;
+      --clr-surface: #ffffff;
+      --clr-muted: #f4f4f5;
+      --clr-border: #e4e4e7;
     }
 
-    /* Map fills available height */
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body { overflow: hidden; font-family: 'Inter', system-ui, sans-serif; }
+
+    main {
+      height: calc(100dvh - var(--header-h));
+      overflow: hidden;
+    }
+
     #map { height: 100%; }
     #map, .leaflet-container { position: relative; z-index: 0; }
 
-    .scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
-    .scrollbar::-webkit-scrollbar-thumb { background: #e4e4e7; border-radius: 999px; }
+    /* Custom scrollbar */
+    .scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
 
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
-    .soft-shadow { box-shadow: 0 10px 25px rgba(0,0,0,.08); }
-    .glass { background: rgba(255,255,255,.75); backdrop-filter: blur(10px); }
-    .kbd { border: 1px solid #e4e4e7; background: #fafafa; padding: 2px 6px; border-radius: 10px; font-size: 12px; }
-    .btn { transition: transform .08s ease, background .15s ease, border-color .15s ease, opacity .15s ease; }
-    .btn:active { transform: translateY(1px); }
-    .tag { border: 1px solid #e4e4e7; background: #fafafa; padding: 4px 10px; border-radius: 999px; font-size: 12px; }
+    .soft-shadow { box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 12px rgba(0,0,0,.04); }
+    .glass { background: rgba(255,255,255,.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+    .kbd { border: 1px solid var(--clr-border); background: var(--clr-muted); padding: 2px 6px; border-radius: 6px; font-size: 11px; font-weight: 500; }
 
-    .pulse-dot { animation: pulse 1.8s infinite; }
-    @keyframes pulse { 0% { opacity: .4 } 50% { opacity: 1 } 100% { opacity: .4 } }
+    .btn {
+      transition: all .15s ease;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:hover { opacity: 0.9; }
 
-    /* Stronger inputs/select look */
+    .tag {
+      display: inline-flex; align-items: center;
+      border: 1px solid var(--clr-border);
+      background: var(--clr-muted);
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #52525b;
+    }
+
+    .pulse-dot { animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: .4 } 50% { opacity: 1 } }
+
     select, input, textarea {
       background: #fff;
       color: #111827;
-      border-color: #d4d4d8;
+      border: 1.5px solid var(--clr-border);
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 14px;
+      transition: border-color .15s, box-shadow .15s;
     }
-    select, input { min-height: 44px; font-weight: 600; }
+    select, input { min-height: 42px; font-weight: 500; padding: 0 12px; }
+    textarea { padding: 10px 12px; font-weight: 500; }
     select:focus, input:focus, textarea:focus {
       outline: none;
-      border-color: #111827;
-      box-shadow: 0 0 0 4px rgba(17, 24, 39, 0.12);
+      border-color: var(--clr-primary);
+      box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.08);
     }
-
-    /* ✅ ONE SCROLL ONLY: the sidebar itself scrolls.
-       Remove nested tiny scrollbars by disabling inner overflow containers. */
-    #placesList, #itineraryList { overflow: visible !important; }
-    #tab_readme > div { overflow: visible !important; } /* readme wrapper */
 
     /* Sidebar layering */
     aside { position: relative; z-index: 1300; }
 
-    /* Desktop layout: sidebar scrolls, map stays fixed height */
+    /* ONE SCROLL: sidebar scrolls, not inner sections */
+    #placesList { overflow: visible !important; }
+    #tab_readme > div { overflow: visible !important; }
+
+    /* Desktop */
     @media (min-width: 1024px){
-      #sidebar{
+      #sidebar {
         height: 100%;
         overflow-y: auto;
         overscroll-behavior: contain;
       }
-      /* stop internal sections from forcing height constraints */
-      #sidebar .sidebar-inner{
+      #sidebar .sidebar-inner {
         height: auto !important;
         max-height: none !important;
       }
-      /* keep map full height */
-      .map-wrap{ height: 100%; }
+      .map-wrap { height: 100%; }
+
+      /* Toggle button for sidebar on mobile */
+      .mobile-toggle-bar { display: none !important; }
     }
 
-    /* Mobile layout: sidebar becomes FULL SCREEN panel under header (no tiny bottom sheet) */
+    /* Mobile: sidebar is full screen panel, togglable */
     @media (max-width: 1023px){
-      #sidebar{
+      #sidebar {
         position: fixed;
         top: var(--header-h);
         bottom: 0;
@@ -107,234 +150,270 @@
         height: auto;
         max-height: none;
         overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
         overscroll-behavior: contain;
-        border-radius: 0;              /* full screen, no cramped sheet */
+        border-radius: 0;
         box-shadow: none;
+        z-index: 1300;
+        transition: transform .3s ease;
       }
-      /* Map remains behind; you can still see it when you scroll to top (header stays) */
-      .map-wrap{ height: 100%; }
+      #sidebar.sidebar-hidden {
+        transform: translateY(100%);
+        pointer-events: none;
+      }
+      .map-wrap { height: 100%; }
     }
+
+    /* Heart / Pin icon buttons */
+    .icon-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px;
+      border-radius: 10px;
+      border: 1.5px solid var(--clr-border);
+      background: #fff;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all .15s ease;
+      -webkit-tap-highlight-color: transparent;
+      flex-shrink: 0;
+    }
+    .icon-btn:hover { background: var(--clr-muted); }
+    .icon-btn:active { transform: scale(0.92); }
+    .icon-btn.active-heart {
+      background: #fef2f2;
+      border-color: #fca5a5;
+      color: #dc2626;
+    }
+    .icon-btn.active-pin {
+      background: #eff6ff;
+      border-color: #93c5fd;
+      color: #2563eb;
+    }
+
+    /* Place card */
+    .place-card {
+      padding: 14px;
+      border-radius: 16px;
+      border: 1.5px solid var(--clr-border);
+      background: #fff;
+      transition: box-shadow .15s ease, border-color .15s ease;
+    }
+    .place-card:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,.06);
+      border-color: #d4d4d8;
+    }
+
+    /* Toast */
+    .toast-item {
+      pointer-events: none;
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--clr-border);
+      border-radius: 12px;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #18181b;
+      box-shadow: 0 4px 12px rgba(0,0,0,.08);
+      animation: toastIn .3s ease;
+    }
+    @keyframes toastIn { from { opacity:0; transform: translateY(-8px); } to { opacity:1; transform: translateY(0); } }
+
+    /* Mobile toggle bar at bottom */
+    .mobile-toggle-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 1400;
+      display: flex;
+      justify-content: center;
+      padding: 8px 16px;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-top: 1px solid var(--clr-border);
+    }
+
+    /* Leaflet popup overrides */
+    .leaflet-popup-content-wrapper {
+      border-radius: 16px !important;
+      box-shadow: 0 4px 16px rgba(0,0,0,.12) !important;
+    }
+    .leaflet-popup-content { margin: 12px 14px !important; }
   </style>
 </head>
 
-<body class="bg-zinc-50 text-zinc-900">
+<body class="bg-zinc-50 text-zinc-900 font-sans">
+
   <!-- Top bar -->
-  <header class="h-[72px] px-4 sm:px-6 border-b bg-white sticky top-0 z-[1100]">
-    <div class="h-full flex items-center gap-3">
-      <div class="w-10 h-10 rounded-2xl bg-black text-white flex items-center justify-center font-semibold">M</div>
+  <header class="h-[56px] px-4 border-b bg-white/90 backdrop-blur-md sticky top-0 z-[1100]" style="height: var(--header-h);">
+    <div class="h-full flex items-center gap-3 max-w-[1800px] mx-auto">
+      <div class="w-9 h-9 rounded-xl bg-zinc-900 text-white flex items-center justify-center font-bold text-sm">M</div>
       <div class="min-w-0">
-        <div class="font-semibold leading-tight truncate">Malaka’s Athens Trip Map</div>
-        <div class="text-xs text-zinc-500 -mt-0.5 truncate">Italians in Greece</div>
+        <div class="font-semibold text-sm leading-tight truncate">Malaka's Athens Trip</div>
+        <div class="text-[11px] text-zinc-400 leading-tight truncate">Italians in Greece</div>
       </div>
 
-      <div class="ml-auto flex items-center gap-2">
-        <div class="hidden md:flex items-center gap-2 px-3 py-2 rounded-2xl border bg-white text-sm">
-          <span class="text-zinc-600">Trip:</span>
-          <span id="tripIdLabel" class="font-semibold"></span>
-          <button id="btnCopyTripLink" class="btn ml-2 px-2.5 py-1.5 rounded-xl border bg-white hover:bg-zinc-50 text-xs">Copy link</button>
+      <div class="ml-auto flex items-center gap-1.5 sm:gap-2">
+        <div id="cloudStatus" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border bg-white text-xs">
+          <span id="cloudDot" class="w-1.5 h-1.5 rounded-full bg-zinc-300"></span>
+          <span id="cloudText" class="text-zinc-500">Cloud: off</span>
         </div>
 
-        <div id="cloudStatus" class="hidden sm:flex items-center gap-2 px-3 py-2 rounded-2xl border bg-white text-sm">
-          <span id="cloudDot" class="w-2 h-2 rounded-full bg-zinc-300"></span>
-          <span id="cloudText" class="text-zinc-600">Cloud: off</span>
-        </div>
-
-        <button id="btnFolders" class="btn px-3 py-2 rounded-2xl border bg-white hover:bg-zinc-50 text-sm">Folders</button>
-        <button id="btnExport" class="btn px-3 py-2 rounded-2xl border bg-white hover:bg-zinc-50 text-sm">Export</button>
-
-        <label class="btn px-3 py-2 rounded-2xl border bg-white hover:bg-zinc-50 text-sm cursor-pointer">
-          Import
-          <input id="fileImport" type="file" accept="application/json" class="hidden" />
-        </label>
-
-        <button id="btnReset" class="btn px-3 py-2 rounded-2xl border bg-white hover:bg-red-50 text-sm">Reset</button>
+        <button id="btnFolders" class="btn px-3 py-1.5 rounded-xl border bg-white hover:bg-zinc-50 text-xs font-medium">Folders</button>
+        <button id="btnReset" class="btn px-3 py-1.5 rounded-xl border bg-white hover:bg-red-50 text-xs font-medium text-red-600 hidden sm:inline-flex">Reset</button>
       </div>
     </div>
   </header>
 
   <!-- Layout -->
-  <main class="relative lg:grid lg:grid-cols-[520px_1fr]">
+  <main class="relative lg:grid lg:grid-cols-[440px_1fr]">
     <!-- Sidebar -->
     <aside id="sidebar"
-      class="bg-white lg:border-r
+      class="bg-white lg:border-r scrollbar
              lg:static
              z-[1300]
              lg:rounded-none
              lg:shadow-none">
 
-      <!-- (optional) Mobile grab handle removed because it’s full screen now -->
-
-      <!-- ✅ IMPORTANT: do NOT force fixed heights here. Let sidebar scroll naturally -->
-      <div class="sidebar-inner p-4 sm:p-5">
-        <!-- Fixed controls -->
+      <div class="sidebar-inner p-4 pb-24 lg:pb-6">
+        <!-- Action buttons -->
         <div class="grid grid-cols-2 gap-2">
-          <button id="btnAddPlace" class="btn px-4 py-3 rounded-2xl bg-black text-white text-sm hover:opacity-95 soft-shadow">+ Add place</button>
-          <button id="btnAddFolder" class="btn px-4 py-3 rounded-2xl border bg-white text-sm hover:bg-zinc-50">+ Folder</button>
-        </div>
-
-        <div class="mt-4 flex gap-2">
-          <button data-tab="places" class="tabBtn btn px-3 py-2 rounded-2xl bg-black text-white text-sm">Places</button>
-          <button data-tab="itinerary" class="tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Itinerary</button>
-          <button data-tab="readme" class="tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">README</button>
-        </div>
-
-        <!-- My Places search -->
-        <div class="mt-4 p-4 rounded-3xl border bg-zinc-50">
-          <div class="flex items-center justify-between">
-            <div class="text-xs text-zinc-600">Search <b>My places</b></div>
-            <div class="text-[11px] text-zinc-500">Clear <span class="kbd">Esc</span></div>
-          </div>
-
-          <div class="mt-2 flex gap-2">
-            <input id="searchText" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"
-              placeholder="e.g. acropolis, brunch, rooftop…" />
-            <button id="btnClearSearch" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Clear</button>
-          </div>
-
-          <div class="mt-3 grid grid-cols-2 gap-2">
-            <select id="filterFolder" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
-            <select id="filterCategory" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
-          </div>
-
-          <div class="mt-3 grid grid-cols-2 gap-2">
-            <button id="btnOnlyHearts" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">♥ Shortlist</button>
-            <button id="btnOnlyPinned" class="btn px-3 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">📌 Must-do</button>
-          </div>
-        </div>
-
-        <!-- Map search -->
-        <div class="mt-4 p-4 rounded-3xl border bg-white soft-shadow">
-          <div class="flex items-center gap-2">
-            <div class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
-            <div class="text-xs text-zinc-600">Search <b>Athens (Map)</b> — by place name</div>
-          </div>
-
-          <div class="mt-2 flex gap-2">
-            <input id="poiQuery" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"
-              placeholder="Search by place name…" />
-            <button id="btnPoi" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Search</button>
-          </div>
-
-          <div class="mt-2 flex items-center text-[11px] text-zinc-500 gap-2">
-            <span>Click <b>Add</b> to pin.</span>
-            <button id="btnPoiClear" class="btn ml-auto underline hover:opacity-80">Clear</button>
-          </div>
-
-          <!-- keep this scrollable only when results are long -->
-          <div id="poiResults" class="hidden mt-3 border rounded-3xl bg-white overflow-auto scrollbar max-h-64"></div>
+          <button id="btnAddPlace" class="btn flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add place
+          </button>
+          <button id="btnAddFolder" class="btn flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border bg-white text-sm font-medium hover:bg-zinc-50">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Folder
+          </button>
         </div>
 
         <!-- Tabs -->
-        <div class="mt-5">
+        <div class="mt-3 flex gap-1.5 p-1 rounded-xl bg-zinc-100">
+          <button data-tab="places" class="tabBtn flex-1 btn px-3 py-2 rounded-lg bg-white text-sm font-medium shadow-sm">Places</button>
+          <button data-tab="readme" class="tabBtn flex-1 btn px-3 py-2 rounded-lg text-sm font-medium text-zinc-500 hover:text-zinc-700">Guide</button>
+        </div>
+
+        <!-- My Places search -->
+        <div class="mt-3 p-3.5 rounded-2xl border bg-zinc-50/80">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Search My places</div>
+            <div class="text-[11px] text-zinc-400">Clear <span class="kbd">Esc</span></div>
+          </div>
+
+          <div class="flex gap-2">
+            <input id="searchText" class="w-full px-3 py-2 text-sm"
+              placeholder="e.g. acropolis, brunch, rooftop..." />
+            <button id="btnClearSearch" class="btn px-3 py-2 rounded-xl border bg-white text-xs font-medium hover:bg-zinc-50">Clear</button>
+          </div>
+
+          <div class="mt-2 grid grid-cols-2 gap-2">
+            <select id="filterFolder" class="w-full px-3 py-2 text-sm"></select>
+            <select id="filterCategory" class="w-full px-3 py-2 text-sm"></select>
+          </div>
+
+          <div class="mt-2 grid grid-cols-2 gap-2">
+            <button id="btnOnlyHearts" class="btn flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border bg-white text-sm font-medium hover:bg-zinc-50">
+              <span class="text-base">&#9829;</span> Shortlist
+            </button>
+            <button id="btnOnlyPinned" class="btn flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border bg-white text-sm font-medium hover:bg-zinc-50">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 2a1 1 0 0 1 .7.3l5 5a1 1 0 0 1-.2 1.4l-4.5 3V16a1 1 0 0 1-.3.7l-3 3a1 1 0 0 1-1.7-.7v-5.6L8.4 9.8H4a1 1 0 0 1-.7-1.7l3-3A1 1 0 0 1 7 5h4.3l3-4.5A1 1 0 0 1 16 2z"/></svg>
+              Must-do
+            </button>
+          </div>
+        </div>
+
+        <!-- Map search (POI) -->
+        <div class="mt-3 p-3.5 rounded-2xl border bg-white soft-shadow">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></div>
+            <div class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Search Athens (Map)</div>
+          </div>
+
+          <div class="flex gap-2">
+            <input id="poiQuery" class="w-full px-3 py-2 text-sm"
+              placeholder="Search by place name..." />
+            <button id="btnPoi" class="btn px-4 py-2 rounded-xl bg-zinc-900 text-white text-sm font-medium">Search</button>
+          </div>
+
+          <div class="mt-1.5 flex items-center text-[11px] text-zinc-400 gap-2">
+            <span>Click <b class="text-zinc-600">Add</b> to pin.</span>
+            <button id="btnPoiClear" class="btn ml-auto underline hover:text-zinc-600">Clear</button>
+          </div>
+
+          <div id="poiResults" class="hidden mt-2 border rounded-2xl bg-white overflow-auto scrollbar max-h-56"></div>
+        </div>
+
+        <!-- Tab content -->
+        <div class="mt-4">
           <!-- PLACES -->
           <section id="tab_places" class="pb-5">
-            <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center justify-between mb-3">
               <div class="text-sm font-semibold">My places</div>
-              <div id="placesCount" class="text-xs text-zinc-500"></div>
+              <div id="placesCount" class="text-xs text-zinc-400 font-medium"></div>
             </div>
-            <!-- ✅ no overflow-auto here; sidebar scrolls instead -->
-            <div id="placesList" class="space-y-3"></div>
-          </section>
-
-          <!-- ITINERARY -->
-          <section id="tab_itinerary" class="hidden pb-5">
-            <div class="p-4 rounded-3xl border bg-white soft-shadow">
-              <div class="flex items-center justify-between">
-                <div class="text-sm font-semibold">Itinerary</div>
-                <span class="tag">3-day friendly</span>
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 gap-2">
-                <input id="itDate" type="date" class="border rounded-2xl px-3 py-2.5 text-sm bg-white" />
-                <input id="itTime" type="time" class="border rounded-2xl px-3 py-2.5 text-sm bg-white" />
-                <select id="itPlace" class="col-span-2 border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
-                <input id="itNote" class="col-span-2 border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Note (optional)…" />
-              </div>
-
-              <div class="mt-3 flex gap-2">
-                <button id="btnAddIt" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Add</button>
-                <button id="btnToday" class="btn px-4 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Today</button>
-              </div>
-            </div>
-
-            <!-- ✅ no overflow-auto here -->
-            <div id="itineraryList" class="mt-4 space-y-3"></div>
+            <div id="placesList" class="space-y-2.5"></div>
           </section>
 
           <!-- README -->
           <section id="tab_readme" class="hidden pb-5">
-            <!-- ✅ no overflow-auto wrapper -->
-            <div class="space-y-4">
-              <div class="p-5 rounded-3xl border bg-white soft-shadow">
-                <div class="text-lg font-semibold">README</div>
-                <div class="text-sm text-zinc-600 mt-1">HOW TO FOR LOST PEOPLE.</div>
+            <div class="space-y-3">
+              <div class="p-4 rounded-2xl border bg-white soft-shadow">
+                <div class="text-base font-bold">Guide</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Tips for your Athens trip</div>
 
-                <div class="mt-4 grid gap-3 text-sm">
-                  <div class="p-4 rounded-2xl border bg-zinc-50">
-                    <div class="font-semibold">Call it a lazy SOP</div>
-                    <ul class="list-disc pl-5 mt-2 space-y-1 text-zinc-700">
-                      <li>Folders = rename, delete, create.</li>
-                      <li><b>📌 Must-do</b> = what you’ll actually schedule.</li>
-                      <li><b>♥ Shortlist</b> = optional if time.</li>
-                      <li><b>Search Athens (Map)</b> finds places you haven’t added yet → click <b>Add</b>.</li>
-                      <li>Build the schedule in <b>Itinerary</b> (keep it light).</li>
-                    </ul>
-                  </div>
-
-                  <div class="p-4 rounded-2xl border bg-zinc-50">
-                    <div class="font-semibold">Bring your sunscream!</div>
-                    <div class="text-zinc-700 mt-2">
-                      Use this as a <b>light suggestion</b> it’s totally up to you what you’ll plan and how packed (or chill)
+                <div class="mt-3 space-y-2.5 text-sm">
+                  <div class="p-3.5 rounded-xl bg-zinc-50 border">
+                    <div class="font-semibold">Bring your sunscreen!</div>
+                    <div class="text-zinc-600 mt-1.5 leading-relaxed">
+                      Use this as a <b>light suggestion</b> &mdash; it's totally up to you what you'll plan and how packed (or chill).
                     </div>
-                    <ul class="list-disc pl-5 mt-2 space-y-1 text-zinc-700">
-                      <li><b>Morning:</b> brunch/breakfast this time of the year and museum visits.</li>
-                      <li><b>Lunch:</b> check if you see is super crouweded might need a small reservation if it's more fancy.</li>
-                      <li><b>Afternoon:</b> Acropolis museum a must in the evening when sun goes down, there's a terrace up from museum but super expensive (tourist trap).</li>
-                      <li><b>Night:</b> we eat late dinners, so not 6pm ahhah but you are italians so you get the vibe.</li>
+                    <ul class="mt-2 space-y-1.5 text-zinc-600 leading-relaxed">
+                      <li class="flex gap-2"><span class="font-semibold shrink-0">Morning:</span> brunch/breakfast this time of the year and museum visits.</li>
+                      <li class="flex gap-2"><span class="font-semibold shrink-0">Lunch:</span> check if the place you see is super crowded &mdash; might need a small reservation if it's more fancy.</li>
+                      <li class="flex gap-2"><span class="font-semibold shrink-0">Afternoon:</span> Acropolis museum a must in the evening when sun goes down. There's a terrace up from museum but super expensive (tourist trap).</li>
+                      <li class="flex gap-2"><span class="font-semibold shrink-0">Night:</span> we eat late dinners, so not 6pm ahhah but you are Italians so you get the vibe.</li>
                     </ul>
                   </div>
                 </div>
               </div>
 
-              <div class="p-5 rounded-3xl border bg-white soft-shadow">
-                <div class="text-lg font-semibold">Transport (city + airport)</div>
-                <div class="text-sm text-zinc-600 mt-1">Prices from the sites, double-check in case of changes.</div>
+              <div class="p-4 rounded-2xl border bg-white soft-shadow">
+                <div class="text-base font-bold">Transport (city + airport)</div>
+                <div class="text-xs text-zinc-500 mt-0.5">Prices from the sites, double-check in case of changes.</div>
 
-                <div class="mt-4 grid gap-3 text-sm">
-                  <div class="p-4 rounded-2xl border bg-zinc-50">
+                <div class="mt-3 space-y-2.5 text-sm">
+                  <div class="p-3.5 rounded-xl bg-zinc-50 border">
                     <div class="font-semibold">City tickets</div>
-                    <ul class="list-disc pl-5 mt-2 space-y-1 text-zinc-700">
-                      <li>90-minute: €1.20</li>
-                      <li>24-hour: €4.10</li>
-                      <li>(Check upon arrival just in case they increased it.)</li>
+                    <ul class="mt-2 space-y-1 text-zinc-600">
+                      <li>90-minute: <b>&euro;1.20</b></li>
+                      <li>24-hour: <b>&euro;4.10</b></li>
+                      <li class="text-zinc-500 text-xs">(Check upon arrival just in case they increased it.)</li>
                     </ul>
-                    <div class="mt-3">
-                      <a class="underline" target="_blank" rel="noreferrer" href="https://www.oasa.gr/en/tickets/prices-of-products/">OASA official prices</a>
+                    <div class="mt-2">
+                      <a class="text-xs font-medium text-zinc-900 underline underline-offset-2" target="_blank" rel="noreferrer" href="https://www.oasa.gr/en/tickets/prices-of-products/">OASA official prices</a>
                     </div>
                   </div>
 
-                  <div class="p-4 rounded-2xl border bg-zinc-50">
-                    <div class="font-semibold">Airport ↔ City</div>
-                    <ul class="list-disc pl-5 mt-2 space-y-1 text-zinc-700">
-                      <li>Metro airport: €9 one-way, €16 two-way</li>
-                      <li>Airport Express bus: €5.50 one-way</li>
-                      <li>Taxi flat fare (center): €40 day / €55 night</li>
+                  <div class="p-3.5 rounded-xl bg-zinc-50 border">
+                    <div class="font-semibold">Airport &harr; City</div>
+                    <ul class="mt-2 space-y-1 text-zinc-600">
+                      <li>Metro airport: <b>&euro;9</b> one-way, <b>&euro;16</b> two-way</li>
+                      <li>Airport Express bus: <b>&euro;5.50</b> one-way</li>
+                      <li>Taxi flat fare (center): <b>&euro;40</b> day / <b>&euro;55</b> night</li>
                     </ul>
-                    <div class="mt-3 flex flex-wrap gap-3">
-                      <a class="underline" target="_blank" rel="noreferrer" href="https://www.oasa.gr/en/tickets/prices-of-products/">OASA prices</a>
-                      <a class="underline" target="_blank" rel="noreferrer" href="https://www.oasa.gr/en/visit-athens/airport-express-bus-lines/">Airport Express lines</a>
-                      <a class="underline" target="_blank" rel="noreferrer" href="https://www.aia.gr/en/traveller/transportation-airport/taxi-limousines-transfer">AIA taxi fares</a>
+                    <div class="mt-2 flex flex-wrap gap-3">
+                      <a class="text-xs font-medium text-zinc-900 underline underline-offset-2" target="_blank" rel="noreferrer" href="https://www.oasa.gr/en/tickets/prices-of-products/">OASA prices</a>
+                      <a class="text-xs font-medium text-zinc-900 underline underline-offset-2" target="_blank" rel="noreferrer" href="https://www.oasa.gr/en/visit-athens/airport-express-bus-lines/">Airport Express lines</a>
+                      <a class="text-xs font-medium text-zinc-900 underline underline-offset-2" target="_blank" rel="noreferrer" href="https://www.aia.gr/en/traveller/transportation-airport/taxi-limousines-transfer">AIA taxi fares</a>
                     </div>
                   </div>
                 </div>
-              </div>
-
-              <div class="p-5 rounded-3xl border bg-white soft-shadow">
-                <div class="text-lg font-semibold">Backup & share</div>
-                <ul class="list-disc pl-5 mt-2 space-y-1 text-sm text-zinc-700">
-                  <li><b>Export</b> saves your map + itinerary to JSON.</li>
-                  <li><b>Import</b> loads it on another device.</li>
-                </ul>
               </div>
             </div>
           </section>
@@ -343,11 +422,11 @@
     </aside>
 
     <!-- Map -->
-    <section class="relative bg-zinc-50 map-wrap">
+    <section class="relative bg-zinc-100 map-wrap">
       <div id="map"></div>
 
-      <div class="absolute bottom-4 left-4 glass border rounded-3xl soft-shadow px-4 py-2 text-xs text-zinc-700">
-        Tip: click the map to auto-fill coordinates in “Add place”.
+      <div class="absolute bottom-4 left-4 glass border rounded-2xl soft-shadow px-3 py-2 text-xs text-zinc-600 hidden lg:block">
+        Tip: click the map to auto-fill coordinates in "Add place".
       </div>
 
       <!-- Toasts -->
@@ -355,139 +434,153 @@
     </section>
   </main>
 
+  <!-- Mobile toggle bar -->
+  <div class="mobile-toggle-bar lg:hidden">
+    <div class="flex gap-2 w-full max-w-md">
+      <button id="mobileShowSidebar" class="btn flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-zinc-900 text-white text-sm font-medium">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        Places
+      </button>
+      <button id="mobileShowMap" class="btn flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border bg-white text-sm font-medium">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        Map
+      </button>
+    </div>
+  </div>
+
   <!-- Modal: Add/Edit Place -->
-  <div id="modal" class="fixed inset-0 hidden items-center justify-center bg-black/50 p-4 z-[2000]">
-    <div class="w-full max-w-3xl bg-white rounded-[28px] soft-shadow border overflow-hidden">
-      <div class="px-5 py-4 border-b flex items-center gap-2">
+  <div id="modal" class="fixed inset-0 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4 z-[2000]">
+    <div class="w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl soft-shadow border overflow-hidden flex flex-col">
+      <div class="px-5 py-3.5 border-b flex items-center gap-2 shrink-0">
         <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
-        <div id="modalTitle" class="font-semibold">Add place</div>
-        <button id="btnCloseModal" class="btn ml-auto px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Close</button>
+        <div id="modalTitle" class="font-semibold text-sm">Add place</div>
+        <button id="btnCloseModal" class="btn ml-auto px-3 py-1.5 rounded-xl border bg-white text-xs font-medium hover:bg-zinc-50">Close</button>
       </div>
 
-      <div class="p-5 space-y-4">
+      <div class="p-5 space-y-4 overflow-y-auto">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label class="text-xs text-zinc-500">Name</label>
-            <input id="fName" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Place name" />
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Name</label>
+            <input id="fName" class="w-full mt-1 px-3 py-2.5 text-sm" placeholder="Place name" />
           </div>
 
           <div>
-            <label class="text-xs text-zinc-500">Category</label>
-            <select id="fCategory" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Category</label>
+            <select id="fCategory" class="w-full mt-1 px-3 py-2.5 text-sm"></select>
           </div>
 
           <div>
-            <label class="text-xs text-zinc-500">Folder</label>
-            <select id="fFolder" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Folder</label>
+            <select id="fFolder" class="w-full mt-1 px-3 py-2.5 text-sm"></select>
           </div>
 
           <div>
-            <label class="text-xs text-zinc-500">Neighborhood / vibe</label>
-            <input id="fVibe" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="e.g. chill street, rooftop view…" />
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Neighborhood / vibe</label>
+            <input id="fVibe" class="w-full mt-1 px-3 py-2.5 text-sm" placeholder="e.g. chill street, rooftop view..." />
           </div>
 
           <div>
-            <label class="text-xs text-zinc-500">Latitude</label>
-            <input id="fLat" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Click map to fill" />
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Latitude</label>
+            <input id="fLat" class="w-full mt-1 px-3 py-2.5 text-sm" placeholder="Click map to fill" />
           </div>
 
           <div>
-            <label class="text-xs text-zinc-500">Longitude</label>
-            <input id="fLng" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Click map to fill" />
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Longitude</label>
+            <input id="fLng" class="w-full mt-1 px-3 py-2.5 text-sm" placeholder="Click map to fill" />
           </div>
 
           <div class="md:col-span-2">
-            <label class="text-xs text-zinc-500">Description</label>
-            <textarea id="fDesc" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" rows="3" placeholder="What to do/order, best time, notes…"></textarea>
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Description</label>
+            <textarea id="fDesc" class="w-full mt-1 px-3 py-2.5 text-sm" rows="3" placeholder="What to do/order, best time, notes..."></textarea>
           </div>
 
           <div>
-            <label class="text-xs text-zinc-500">Website link</label>
-            <input id="fLink" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="https://…" />
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Website link</label>
+            <input id="fLink" class="w-full mt-1 px-3 py-2.5 text-sm" placeholder="https://..." />
           </div>
 
           <div>
-            <label class="text-xs text-zinc-500">Google Maps link</label>
-            <input id="fGmaps" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="https://maps.google.com/…" />
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Google Maps link</label>
+            <input id="fGmaps" class="w-full mt-1 px-3 py-2.5 text-sm" placeholder="https://maps.google.com/..." />
           </div>
 
           <div class="md:col-span-2">
-            <label class="text-xs text-zinc-500">Photo URLs (comma-separated)</label>
-            <input id="fPhotos" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="https://…jpg, https://…png" />
-            <div class="text-xs text-zinc-500 mt-1">Tip: you can host images in your repo and use relative paths.</div>
+            <label class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Photo URLs (comma-separated)</label>
+            <input id="fPhotos" class="w-full mt-1 px-3 py-2.5 text-sm" placeholder="https://...jpg, https://...png" />
+            <div class="text-[11px] text-zinc-400 mt-1">Tip: you can host images in your repo and use relative paths.</div>
           </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <button id="btnSavePlace" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Save</button>
-          <button id="btnDeletePlace" class="btn px-4 py-2.5 rounded-2xl border bg-white text-sm hover:bg-red-50 hidden">Delete</button>
+          <button id="btnSavePlace" class="btn px-5 py-2.5 rounded-xl bg-zinc-900 text-white text-sm font-medium">Save</button>
+          <button id="btnDeletePlace" class="btn px-4 py-2.5 rounded-xl border bg-white text-sm font-medium text-red-600 hover:bg-red-50 hidden">Delete</button>
 
           <div class="ml-auto flex items-center gap-4 text-sm">
-            <label class="flex items-center gap-2">
-              <input id="fFav" type="checkbox" class="accent-black" />
-              <span>♥ Shortlist</span>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="fFav" type="checkbox" class="accent-red-500 w-4 h-4" />
+              <span class="font-medium">Shortlist</span>
             </label>
-            <label class="flex items-center gap-2">
-              <input id="fPinned" type="checkbox" class="accent-black" />
-              <span>📌 Must-do</span>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="fPinned" type="checkbox" class="accent-blue-600 w-4 h-4" />
+              <span class="font-medium">Must-do</span>
             </label>
           </div>
         </div>
 
-        <div class="text-xs text-zinc-500">Map tiles: OpenStreetMap • POI search: Nominatim • Sync: Firebase.</div>
+        <div class="text-[11px] text-zinc-400">Map tiles: OpenStreetMap | POI: Nominatim | Sync: Firebase</div>
       </div>
     </div>
   </div>
 
   <!-- Modal: Folder Manager -->
-  <div id="folderModal" class="fixed inset-0 hidden items-center justify-center bg-black/50 p-4 z-[2000]">
-    <div class="w-full max-w-xl bg-white rounded-[28px] soft-shadow border overflow-hidden">
-      <div class="px-5 py-4 border-b flex items-center">
-        <div class="font-semibold">Folders</div>
-        <button id="btnCloseFolderModal" class="btn ml-auto px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Close</button>
+  <div id="folderModal" class="fixed inset-0 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4 z-[2000]">
+    <div class="w-full max-w-md max-h-[85vh] bg-white rounded-2xl soft-shadow border overflow-hidden flex flex-col">
+      <div class="px-5 py-3.5 border-b flex items-center shrink-0">
+        <div class="font-semibold text-sm">Folders</div>
+        <button id="btnCloseFolderModal" class="btn ml-auto px-3 py-1.5 rounded-xl border bg-white text-xs font-medium hover:bg-zinc-50">Close</button>
       </div>
 
-      <div class="p-5 space-y-4">
-        <div class="p-4 rounded-3xl border bg-zinc-50">
-          <div class="text-sm font-semibold mb-2">Create folder</div>
+      <div class="p-5 space-y-4 overflow-y-auto">
+        <div class="p-3.5 rounded-2xl bg-zinc-50 border">
+          <div class="text-xs font-semibold mb-2">Create folder</div>
           <div class="flex gap-2">
-            <input id="newFolderName" class="w-full border rounded-2xl px-3 py-2.5 text-sm bg-white" placeholder="Folder name…" />
-            <button id="btnCreateFolder" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Create</button>
+            <input id="newFolderName" class="flex-1 px-3 py-2 text-sm" placeholder="Folder name..." />
+            <button id="btnCreateFolder" class="btn px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-medium">Create</button>
           </div>
-          <div class="text-xs text-zinc-500 mt-2">You can delete <b>any</b> folder. Places will be moved to another folder you choose.</div>
+          <div class="text-[11px] text-zinc-400 mt-2">You can delete <b>any</b> folder. Places will be moved to another folder you choose.</div>
         </div>
 
         <div>
-          <div class="text-sm font-semibold mb-2">Your folders</div>
-          <div id="folderList" class="space-y-2 max-h-[44vh] overflow-auto scrollbar"></div>
+          <div class="text-xs font-semibold mb-2">Your folders</div>
+          <div id="folderList" class="space-y-2 max-h-[40vh] overflow-auto scrollbar"></div>
         </div>
       </div>
     </div>
   </div>
 
   <!-- Modal: Delete folder + move places -->
-  <div id="deleteFolderModal" class="fixed inset-0 hidden items-center justify-center bg-black/50 p-4 z-[2500]">
-    <div class="w-full max-w-lg bg-white rounded-[28px] soft-shadow border overflow-hidden">
-      <div class="px-5 py-4 border-b flex items-center">
-        <div class="font-semibold">Delete folder</div>
-        <button id="btnCloseDeleteFolderModal" class="btn ml-auto px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Close</button>
+  <div id="deleteFolderModal" class="fixed inset-0 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4 z-[2500]">
+    <div class="w-full max-w-md bg-white rounded-2xl soft-shadow border overflow-hidden">
+      <div class="px-5 py-3.5 border-b flex items-center">
+        <div class="font-semibold text-sm">Delete folder</div>
+        <button id="btnCloseDeleteFolderModal" class="btn ml-auto px-3 py-1.5 rounded-xl border bg-white text-xs font-medium hover:bg-zinc-50">Close</button>
       </div>
       <div class="p-5 space-y-4">
         <div class="text-sm text-zinc-700">
-          You’re deleting: <b id="delFolderName">—</b>
+          You're deleting: <b id="delFolderName">&mdash;</b>
         </div>
 
-        <div class="p-4 rounded-3xl border bg-zinc-50">
-          <div class="text-sm font-semibold">Move its places to</div>
-          <select id="delMoveTo" class="mt-2 w-full border rounded-2xl px-3 py-2.5 text-sm bg-white"></select>
-          <div class="text-xs text-zinc-500 mt-2">
+        <div class="p-3.5 rounded-2xl bg-zinc-50 border">
+          <div class="text-xs font-semibold">Move its places to</div>
+          <select id="delMoveTo" class="mt-2 w-full px-3 py-2.5 text-sm"></select>
+          <div class="text-[11px] text-zinc-400 mt-2">
             If this is your last folder, the app will create <b>My places</b> automatically.
           </div>
         </div>
 
         <div class="flex gap-2">
-          <button id="btnConfirmDeleteFolder" class="btn px-4 py-2.5 rounded-2xl bg-black text-white text-sm">Delete</button>
-          <button id="btnCancelDeleteFolder" class="btn px-4 py-2.5 rounded-2xl border bg-white text-sm hover:bg-zinc-50">Cancel</button>
+          <button id="btnConfirmDeleteFolder" class="btn px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium">Delete</button>
+          <button id="btnCancelDeleteFolder" class="btn px-4 py-2.5 rounded-xl border bg-white text-sm font-medium hover:bg-zinc-50">Cancel</button>
         </div>
       </div>
     </div>
@@ -516,7 +609,7 @@
       const urlParams = new URLSearchParams(location.search);
       const TRIP_ID = (urlParams.get("trip") || DEFAULT_TRIP_ID).trim();
 
-      const DEFAULT_FOLDER_FAV = "Malaka’s favorites";
+      const DEFAULT_FOLDER_FAV = "Malaka's favorites";
 
       const CATEGORIES = [
         "Brunch","Lunch","Dinner","Drinks","Coffee",
@@ -571,7 +664,7 @@
             name: "Acropolis / Parthenon",
             category: "Historical",
             folderId: "f_general",
-            vibe: "Iconic — go early to avoid crowds",
+            vibe: "Iconic - go early to avoid crowds",
             desc: "Must-see. Combine with Acropolis Museum after.",
             lat: 37.9715, lng: 23.7267,
             link: "",
@@ -652,11 +745,11 @@
       function toast(message){
         if(!toastArea) return;
         const el = document.createElement("div");
-        el.className = "pointer-events-none glass border rounded-2xl soft-shadow px-4 py-3 text-sm text-zinc-800";
+        el.className = "toast-item";
         el.textContent = message;
         toastArea.appendChild(el);
-        setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-4px)"; }, 1800);
-        setTimeout(() => { el.remove(); }, 2400);
+        setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity .3s ease"; }, 1800);
+        setTimeout(() => { el.remove(); }, 2200);
       }
 
       function folderName(folderId){
@@ -687,29 +780,36 @@
       const btnOnlyHearts = document.getElementById("btnOnlyHearts");
       const btnOnlyPinned = document.getElementById("btnOnlyPinned");
 
-      const itPlaceEl = document.getElementById("itPlace");
-      const itineraryListEl = document.getElementById("itineraryList");
-
       const poiQueryEl = document.getElementById("poiQuery");
       const btnPoiEl = document.getElementById("btnPoi");
       const btnPoiClearEl = document.getElementById("btnPoiClear");
       const poiResultsEl = document.getElementById("poiResults");
 
-      const tripIdLabelEl = document.getElementById("tripIdLabel");
-      const btnCopyTripLinkEl = document.getElementById("btnCopyTripLink");
-      if(tripIdLabelEl) tripIdLabelEl.textContent = TRIP_ID;
-      if(btnCopyTripLinkEl){
-        btnCopyTripLinkEl.addEventListener("click", async () => {
-          try{
-            const url = new URL(location.href);
-            url.searchParams.set("trip", TRIP_ID);
-            await navigator.clipboard.writeText(url.toString());
-            toast("Trip link copied.");
-          }catch(_){
-            toast("Copy failed (browser blocked).");
-          }
-        });
+      /***********************
+       *  MOBILE SIDEBAR TOGGLE
+       ***********************/
+      const sidebar = document.getElementById("sidebar");
+      const mobileShowSidebar = document.getElementById("mobileShowSidebar");
+      const mobileShowMap = document.getElementById("mobileShowMap");
+
+      function showSidebar(){
+        sidebar.classList.remove("sidebar-hidden");
+        mobileShowSidebar.classList.remove("border","bg-white");
+        mobileShowSidebar.classList.add("bg-zinc-900","text-white");
+        mobileShowMap.classList.remove("bg-zinc-900","text-white");
+        mobileShowMap.classList.add("border","bg-white");
       }
+      function hideSidebar(){
+        sidebar.classList.add("sidebar-hidden");
+        mobileShowMap.classList.remove("border","bg-white");
+        mobileShowMap.classList.add("bg-zinc-900","text-white");
+        mobileShowSidebar.classList.remove("bg-zinc-900","text-white");
+        mobileShowSidebar.classList.add("border","bg-white");
+        setTimeout(() => map.invalidateSize(), 350);
+      }
+
+      if(mobileShowSidebar) mobileShowSidebar.addEventListener("click", showSidebar);
+      if(mobileShowMap) mobileShowMap.addEventListener("click", hideSidebar);
 
       /***********************
        *  CLOUD UI
@@ -721,6 +821,7 @@
       function setCloudUI(mode, text){
         if(!cloudStatusEl || !cloudDotEl || !cloudTextEl) return;
         cloudStatusEl.classList.remove("hidden");
+        cloudStatusEl.classList.add("sm:flex");
         cloudTextEl.textContent = text;
 
         cloudDotEl.classList.remove("bg-zinc-300","bg-emerald-500","bg-amber-500","bg-red-500");
@@ -733,7 +834,7 @@
       /***********************
        *  MAP
        ***********************/
-      const map = L.map("map", { zoomControl:true }).setView([37.9838, 23.7275], 13);
+      const map = L.map("map", { zoomControl: true }).setView([37.9838, 23.7275], 13);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap contributors"
@@ -742,7 +843,6 @@
       const markersLayer = L.layerGroup().addTo(map);
       const poiLayer = L.layerGroup().addTo(map);
 
-      // Leaflet sizing
       setTimeout(() => map.invalidateSize(), 250);
       window.addEventListener("resize", () => map.invalidateSize());
 
@@ -780,33 +880,41 @@
       }
 
       /***********************
+       *  HEART / PIN SVG ICONS
+       ***********************/
+      const HEART_EMPTY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+      const HEART_FILLED = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+      const PIN_EMPTY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
+      const PIN_FILLED = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3" fill="white"/></svg>';
+
+      /***********************
        *  MARKERS + LIST
        ***********************/
       function makePopupHTML(place){
         const photos = (place.photos || []).filter(Boolean);
         const photoHTML = photos.length
-          ? `<img src="${escapeHtml(photos[0])}" alt="" class="w-full h-40 object-cover rounded-2xl border mb-2" onerror="this.style.display='none'">`
+          ? `<img src="${escapeHtml(photos[0])}" alt="" style="width:100%;height:120px;object-fit:cover;border-radius:12px;margin-bottom:8px;" onerror="this.style.display='none'">`
           : "";
 
         const links = `
-          <div class="flex flex-wrap gap-3 mt-2 text-sm">
-            ${place.gmaps ? `<a target="_blank" rel="noreferrer" class="underline" href="${escapeAttr(place.gmaps)}">Google Maps</a>` : ""}
-            ${place.link ? `<a target="_blank" rel="noreferrer" class="underline" href="${escapeAttr(place.link)}">Website</a>` : ""}
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:12px;">
+            ${place.gmaps ? `<a target="_blank" rel="noreferrer" style="text-decoration:underline;" href="${escapeAttr(place.gmaps)}">Google Maps</a>` : ""}
+            ${place.link ? `<a target="_blank" rel="noreferrer" style="text-decoration:underline;" href="${escapeAttr(place.link)}">Website</a>` : ""}
           </div>
         `;
 
         return `
-          <div class="w-[280px]">
+          <div style="width:260px;font-family:Inter,system-ui,sans-serif;">
             ${photoHTML}
-            <div class="font-semibold">${escapeHtml(place.name || "Untitled")}</div>
-            <div class="text-xs text-zinc-600">${escapeHtml(place.category || "Other")} • ${escapeHtml(folderName(place.folderId))}</div>
-            ${place.vibe ? `<div class="text-xs mt-1">${escapeHtml(place.vibe)}</div>` : ""}
-            ${place.desc ? `<div class="text-xs mt-1 line-clamp-3">${escapeHtml(place.desc)}</div>` : ""}
+            <div style="font-weight:600;font-size:14px;">${escapeHtml(place.name || "Untitled")}</div>
+            <div style="font-size:11px;color:#71717a;margin-top:2px;">${escapeHtml(place.category || "Other")} &bull; ${escapeHtml(folderName(place.folderId))}</div>
+            ${place.vibe ? `<div style="font-size:11px;margin-top:4px;">${escapeHtml(place.vibe)}</div>` : ""}
+            ${place.desc ? `<div style="font-size:11px;margin-top:4px;color:#52525b;">${escapeHtml(place.desc)}</div>` : ""}
             ${links}
-            <div class="flex gap-2 mt-3">
-              <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.toggleFavorite('${place.id}')">${place.favorite ? "Unheart" : "Heart"} ♥</button>
-              <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.togglePinned('${place.id}')">${place.pinned ? "Unpin" : "Pin"} 📌</button>
-              <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.openEdit('${place.id}')">Edit</button>
+            <div style="display:flex;gap:6px;margin-top:10px;">
+              <button style="padding:4px 10px;border-radius:8px;border:1px solid #e4e4e7;font-size:11px;background:#fff;cursor:pointer;" onclick="window.toggleFavorite('${place.id}')">${place.favorite ? "Unheart" : "Heart"}</button>
+              <button style="padding:4px 10px;border-radius:8px;border:1px solid #e4e4e7;font-size:11px;background:#fff;cursor:pointer;" onclick="window.togglePinned('${place.id}')">${place.pinned ? "Unpin" : "Pin"}</button>
+              <button style="padding:4px 10px;border-radius:8px;border:1px solid #e4e4e7;font-size:11px;background:#fff;cursor:pointer;" onclick="window.openEdit('${place.id}')">Edit</button>
             </div>
           </div>
         `;
@@ -824,36 +932,39 @@
       function placeCard(place){
         const photos = (place.photos || []).filter(Boolean);
         const thumb = photos[0];
-        const badge = place.pinned ? "📌" : (place.favorite ? "♥" : "");
+
+        const heartClass = place.favorite ? "icon-btn active-heart" : "icon-btn";
+        const heartIcon = place.favorite ? HEART_FILLED : HEART_EMPTY;
+        const pinClass = place.pinned ? "icon-btn active-pin" : "icon-btn";
+        const pinIcon = place.pinned ? PIN_FILLED : PIN_EMPTY;
 
         return `
-          <div class="p-4 rounded-3xl border bg-white hover:shadow-sm transition-shadow">
+          <div class="place-card">
             <div class="flex gap-3">
-              <div class="w-20 h-20 rounded-2xl border bg-zinc-100 overflow-hidden flex items-center justify-center text-xs text-zinc-500 shrink-0">
+              <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-xl border bg-zinc-100 overflow-hidden flex items-center justify-center text-[10px] text-zinc-400 shrink-0">
                 ${thumb ? `<img src="${escapeAttr(thumb)}" class="w-full h-full object-cover" onerror="this.parentElement.textContent='No photo'">` : "No photo"}
               </div>
 
               <div class="min-w-0 flex-1">
                 <div class="flex items-start gap-2">
-                  <div class="font-semibold truncate">${escapeHtml(place.name || "Untitled")}</div>
-                  <div class="ml-auto flex items-center gap-2">
-                    ${badge ? `<span class="tag">${badge}</span>` : ""}
-                    <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.toggleFavorite('${place.id}')">${place.favorite ? "♥" : "♡"}</button>
-                    <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.togglePinned('${place.id}')">${place.pinned ? "📌" : "📍"}</button>
+                  <div class="font-semibold text-sm truncate flex-1">${escapeHtml(place.name || "Untitled")}</div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <button class="${heartClass}" onclick="window.toggleFavorite('${place.id}')" title="${place.favorite ? 'Remove from shortlist' : 'Add to shortlist'}">${heartIcon}</button>
+                    <button class="${pinClass}" onclick="window.togglePinned('${place.id}')" title="${place.pinned ? 'Unpin' : 'Pin as must-do'}">${pinIcon}</button>
                   </div>
                 </div>
 
-                <div class="text-xs text-zinc-600 mt-0.5">
-                  ${escapeHtml(place.category || "Other")} • ${escapeHtml(folderName(place.folderId))}
+                <div class="text-[11px] text-zinc-500 mt-0.5 font-medium">
+                  ${escapeHtml(place.category || "Other")} &bull; ${escapeHtml(folderName(place.folderId))}
                 </div>
 
-                ${place.vibe ? `<div class="text-xs text-zinc-700 mt-2 line-clamp-2">${escapeHtml(place.vibe)}</div>` : ""}
+                ${place.vibe ? `<div class="text-xs text-zinc-600 mt-1.5 line-clamp-2">${escapeHtml(place.vibe)}</div>` : ""}
 
-                <div class="flex flex-wrap gap-2 mt-3">
-                  <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.flyToPlace('${place.id}')">View</button>
-                  <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.openEdit('${place.id}')">Edit</button>
-                  ${place.gmaps ? `<a class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" target="_blank" rel="noreferrer" href="${escapeAttr(place.gmaps)}">Maps</a>` : ""}
-                  ${place.link ? `<a class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" target="_blank" rel="noreferrer" href="${escapeAttr(place.link)}">Link</a>` : ""}
+                <div class="flex flex-wrap gap-1.5 mt-2">
+                  <button class="btn px-2.5 py-1 rounded-lg border text-[11px] font-medium hover:bg-zinc-50" onclick="window.flyToPlace('${place.id}')">View</button>
+                  <button class="btn px-2.5 py-1 rounded-lg border text-[11px] font-medium hover:bg-zinc-50" onclick="window.openEdit('${place.id}')">Edit</button>
+                  ${place.gmaps ? `<a class="btn px-2.5 py-1 rounded-lg border text-[11px] font-medium hover:bg-zinc-50 inline-flex items-center" target="_blank" rel="noreferrer" href="${escapeAttr(place.gmaps)}">Maps</a>` : ""}
+                  ${place.link ? `<a class="btn px-2.5 py-1 rounded-lg border text-[11px] font-medium hover:bg-zinc-50 inline-flex items-center" target="_blank" rel="noreferrer" href="${escapeAttr(place.link)}">Link</a>` : ""}
                 </div>
               </div>
             </div>
@@ -863,16 +974,16 @@
 
       function renderPlacesList(){
         const items = filteredPlaces();
-        if(placesCountEl) placesCountEl.textContent = `${items.length} shown`;
+        if(placesCountEl) placesCountEl.textContent = `${items.length} place${items.length===1?"":"s"}`;
 
         if(!items.length){
           if(placesListEl){
             placesListEl.innerHTML = `
-              <div class="p-5 rounded-3xl border bg-zinc-50 text-sm text-zinc-600">
+              <div class="p-5 rounded-2xl border bg-zinc-50 text-sm text-zinc-500">
                 No results in <b>My places</b>.
-                <ul class="list-disc pl-5 mt-2 space-y-1">
+                <ul class="mt-2 space-y-1 text-zinc-500 text-xs">
                   <li>Clear folder/category filters</li>
-                  <li>Turn off ♥ / 📌 toggles</li>
+                  <li>Turn off Shortlist / Must-do toggles</li>
                   <li>Use <b>Search Athens (Map)</b> and click <b>Add</b></li>
                 </ul>
               </div>
@@ -904,31 +1015,31 @@
             const countPinned = pinned.length;
 
             return `
-              <div class="p-4 rounded-3xl border bg-white">
-                <div class="flex items-start justify-between gap-2">
+              <div class="p-3.5 rounded-2xl border bg-white">
+                <div class="flex items-start justify-between gap-2 mb-2">
                   <div class="min-w-0">
-                    <div class="font-semibold truncate">${folderTitle}</div>
-                    <div class="text-xs text-zinc-500 mt-0.5">
+                    <div class="font-semibold text-sm truncate">${folderTitle}</div>
+                    <div class="text-[11px] text-zinc-400 mt-0.5 font-medium">
                       ${folderPlaces.length} place${folderPlaces.length===1?"":"s"}
-                      ${countPinned ? ` • <span class="font-semibold text-zinc-800">${countPinned} pinned</span>` : ""}
+                      ${countPinned ? ` &bull; <span class="text-blue-600 font-semibold">${countPinned} pinned</span>` : ""}
                     </div>
                   </div>
-                  ${countPinned ? `<span class="tag">📌 Pinned first</span>` : `<span class="tag">—</span>`}
+                  ${countPinned ? `<span class="tag text-blue-600">Pinned first</span>` : ""}
                 </div>
 
                 ${pinned.length ? `
-                  <div class="mt-3">
-                    <div class="text-xs font-semibold text-zinc-700 mb-2">📌 Must-do</div>
-                    <div class="space-y-3">
+                  <div class="mb-2">
+                    <div class="text-[11px] font-semibold text-blue-600 mb-1.5 uppercase tracking-wider">Must-do</div>
+                    <div class="space-y-2">
                       ${pinned.map(placeCard).join("")}
                     </div>
                   </div>
                 ` : ""}
 
                 ${rest.length ? `
-                  <div class="mt-3">
-                    <div class="text-xs font-semibold text-zinc-700 mb-2">Other</div>
-                    <div class="space-y-3">
+                  <div>
+                    <div class="text-[11px] font-semibold text-zinc-400 mb-1.5 uppercase tracking-wider">Other</div>
+                    <div class="space-y-2">
                       ${rest.map(placeCard).join("")}
                     </div>
                   </div>
@@ -949,15 +1060,13 @@
           const tab = btn.dataset.tab;
 
           document.querySelectorAll(".tabBtn").forEach(b => {
-            b.className = "tabBtn btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50";
+            b.className = "tabBtn flex-1 btn px-3 py-2 rounded-lg text-sm font-medium text-zinc-500 hover:text-zinc-700";
           });
-          btn.className = "tabBtn btn px-3 py-2 rounded-2xl bg-black text-white text-sm";
+          btn.className = "tabBtn flex-1 btn px-3 py-2 rounded-lg bg-white text-sm font-medium shadow-sm text-zinc-900";
 
           document.getElementById("tab_places").classList.toggle("hidden", tab !== "places");
-          document.getElementById("tab_itinerary").classList.toggle("hidden", tab !== "itinerary");
           document.getElementById("tab_readme").classList.toggle("hidden", tab !== "readme");
 
-          // scroll sidebar to top so user sees the tab content immediately
           const sb = document.getElementById("sidebar");
           if(sb) sb.scrollTo({ top: 0, behavior: "smooth" });
 
@@ -995,14 +1104,6 @@
         }
         if(fFolder){
           fFolder.innerHTML = state.folders.map(f => `<option value="${escapeAttr(f.id)}">${escapeHtml(f.name)}</option>`).join("");
-        }
-
-        if(itPlaceEl){
-          itPlaceEl.innerHTML = state.places
-            .slice()
-            .sort((a,b) => (a.name||"").localeCompare(b.name||""))
-            .map(p => `<option value="${escapeAttr(p.id)}">${escapeHtml(p.name || "Untitled")} (${escapeHtml(p.category || "Other")})</option>`)
-            .join("");
         }
       }
 
@@ -1118,7 +1219,7 @@
         const p = state.places.find(x => x.id === id);
         if(!p) return;
         p.favorite = !p.favorite;
-        touchState(p.favorite ? "Added to shortlist ♥" : "Removed from shortlist");
+        touchState(p.favorite ? "Added to shortlist" : "Removed from shortlist");
         renderAll();
       };
 
@@ -1126,7 +1227,7 @@
         const p = state.places.find(x => x.id === id);
         if(!p) return;
         p.pinned = !p.pinned;
-        touchState(p.pinned ? "Pinned 📌" : "Unpinned");
+        touchState(p.pinned ? "Pinned as must-do" : "Unpinned");
         renderAll();
       };
 
@@ -1134,6 +1235,8 @@
         const p = state.places.find(x => x.id === id);
         if(!p || !isFinite(p.lat) || !isFinite(p.lng)) return;
         map.flyTo([p.lat, p.lng], 16, { duration: 0.8 });
+        // On mobile, switch to map view
+        if(window.innerWidth < 1024) hideSidebar();
         setTimeout(() => renderMarkers(), 250);
       };
 
@@ -1141,13 +1244,21 @@
        *  SEARCH + FILTER EVENTS
        ***********************/
       function styleToggleButtons(){
-        btnOnlyHearts.classList.toggle("bg-black", !!state.ui.heartsOnly);
-        btnOnlyHearts.classList.toggle("text-white", !!state.ui.heartsOnly);
-        btnOnlyHearts.classList.toggle("border-black", !!state.ui.heartsOnly);
+        if(state.ui.heartsOnly){
+          btnOnlyHearts.classList.add("bg-red-50","border-red-300","text-red-700");
+          btnOnlyHearts.classList.remove("bg-white","hover:bg-zinc-50");
+        }else{
+          btnOnlyHearts.classList.remove("bg-red-50","border-red-300","text-red-700");
+          btnOnlyHearts.classList.add("bg-white","hover:bg-zinc-50");
+        }
 
-        btnOnlyPinned.classList.toggle("bg-black", !!state.ui.pinnedOnly);
-        btnOnlyPinned.classList.toggle("text-white", !!state.ui.pinnedOnly);
-        btnOnlyPinned.classList.toggle("border-black", !!state.ui.pinnedOnly);
+        if(state.ui.pinnedOnly){
+          btnOnlyPinned.classList.add("bg-blue-50","border-blue-300","text-blue-700");
+          btnOnlyPinned.classList.remove("bg-white","hover:bg-zinc-50");
+        }else{
+          btnOnlyPinned.classList.remove("bg-blue-50","border-blue-300","text-blue-700");
+          btnOnlyPinned.classList.add("bg-white","hover:bg-zinc-50");
+        }
       }
 
       filterFolderEl.addEventListener("change", () => renderAll());
@@ -1189,122 +1300,19 @@
       });
 
       /***********************
-       *  ITINERARY
+       *  RESET
        ***********************/
-      function renderItinerary(){
-        const byDate = {};
-        state.itinerary.forEach(e => ((byDate[e.date] ??= []).push(e)));
-        Object.keys(byDate).forEach(d => byDate[d].sort((a,b) => (a.time||"").localeCompare(b.time||"")));
-
-        const dates = Object.keys(byDate).sort();
-
-        itineraryListEl.innerHTML = dates.length ? dates.map(date => {
-          const items = byDate[date];
-          return `
-            <div class="p-4 rounded-3xl border bg-white">
-              <div class="flex items-center justify-between">
-                <div class="font-semibold">${escapeHtml(date)}</div>
-                <span class="tag">${items.length} item${items.length===1?"":"s"}</span>
-              </div>
-
-              <div class="mt-3 space-y-2">
-                ${items.map(item => {
-                  const p = state.places.find(x => x.id === item.placeId);
-                  const name = p?.name || "(deleted place)";
-                  return `
-                    <div class="p-3 rounded-2xl border bg-zinc-50 flex gap-2 items-start">
-                      <div class="text-xs font-semibold w-16">${escapeHtml(item.time || "--:--")}</div>
-                      <div class="min-w-0 flex-1">
-                        <div class="text-sm font-semibold truncate">${escapeHtml(name)}</div>
-                        ${item.note ? `<div class="text-xs text-zinc-600 mt-1">${escapeHtml(item.note)}</div>` : ""}
-                        ${p?.gmaps ? `<a class="text-xs underline mt-1 inline-block" target="_blank" rel="noreferrer" href="${escapeAttr(p.gmaps)}">Directions</a>` : ""}
-                      </div>
-                      <div class="flex gap-1">
-                        <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-white" onclick="window.flyToPlace('${item.placeId}')">Map</button>
-                        <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-red-50" onclick="window.deleteIt('${item.id}')">Delete</button>
-                      </div>
-                    </div>
-                  `;
-                }).join("")}
-              </div>
-            </div>
-          `;
-        }).join("") : `<div class="p-5 rounded-3xl border bg-zinc-50 text-sm text-zinc-600">No itinerary items yet.</div>`;
-      }
-
-      window.deleteIt = (id) => {
-        state.itinerary = state.itinerary.filter(x => x.id !== id);
-        touchState("Removed itinerary item");
-        renderItinerary();
-      };
-
-      document.getElementById("btnAddIt").addEventListener("click", () => {
-        const date = document.getElementById("itDate").value;
-        const time = document.getElementById("itTime").value || "09:00";
-        const placeId = document.getElementById("itPlace").value;
-        const note = document.getElementById("itNote").value.trim();
-
-        if(!date){ alert("Pick a date first."); return; }
-        if(!placeId){ alert("Pick a place."); return; }
-
-        state.itinerary.push({ id:"it_"+uid(), date, time, placeId, note });
-        document.getElementById("itNote").value = "";
-
-        touchState("Added to itinerary");
-        renderItinerary();
-      });
-
-      document.getElementById("btnToday").addEventListener("click", () => {
-        const d = new Date();
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth()+1).padStart(2,"0");
-        const dd = String(d.getDate()).padStart(2,"0");
-        document.getElementById("itDate").value = `${yyyy}-${mm}-${dd}`;
-        document.getElementById("itTime").value = "10:00";
-        toast("Set to today.");
-      });
-
-      /***********************
-       *  EXPORT / IMPORT / RESET
-       ***********************/
-      document.getElementById("btnExport").addEventListener("click", () => {
-        const blob = new Blob([JSON.stringify(state, null, 2)], { type:"application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `athens-trip-${TRIP_ID}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        toast("Exported JSON.");
-      });
-
-      document.getElementById("fileImport").addEventListener("change", async (e) => {
-        const file = e.target.files?.[0];
-        if(!file) return;
-        try{
-          const text = await file.text();
-          const imported = JSON.parse(text);
-          state = normalizeState(imported);
-
-          touchState("Imported");
+      const btnReset = document.getElementById("btnReset");
+      if(btnReset){
+        btnReset.addEventListener("click", () => {
+          if(!confirm("Reset EVERYTHING to defaults?")) return;
+          state = normalizeState(null);
+          touchState("Reset");
           initUI();
           renderAll();
-          toast("Imported!");
-        }catch(err){
-          alert("Import failed: " + (err && err.message ? err.message : "unknown error"));
-        }finally{
-          e.target.value = "";
-        }
-      });
-
-      document.getElementById("btnReset").addEventListener("click", () => {
-        if(!confirm("Reset EVERYTHING to defaults?")) return;
-        state = normalizeState(null);
-        touchState("Reset");
-        initUI();
-        renderAll();
-        toast("Reset complete.");
-      });
+          toast("Reset complete.");
+        });
+      }
 
       /***********************
        *  FOLDERS
@@ -1337,13 +1345,13 @@
         folderListEl.innerHTML = state.folders.map(f => {
           const count = state.places.filter(p => p.folderId === f.id).length;
           return `
-            <div class="p-4 rounded-3xl border bg-white flex items-center gap-3">
+            <div class="p-3.5 rounded-xl border bg-white flex items-center gap-3">
               <div class="min-w-0 flex-1">
-                <div class="font-semibold truncate">${escapeHtml(f.name)}</div>
-                <div class="text-xs text-zinc-500">${count} place${count===1?"":"s"}</div>
+                <div class="font-semibold text-sm truncate">${escapeHtml(f.name)}</div>
+                <div class="text-[11px] text-zinc-400 font-medium">${count} place${count===1?"":"s"}</div>
               </div>
-              <button class="btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-zinc-50" onclick="window.renameFolder('${f.id}')">Rename</button>
-              <button class="btn px-3 py-2 rounded-2xl border bg-white text-sm hover:bg-red-50" onclick="window.askDeleteFolder('${f.id}')">Delete</button>
+              <button class="btn px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-zinc-50" onclick="window.renameFolder('${f.id}')">Rename</button>
+              <button class="btn px-3 py-1.5 rounded-lg border text-xs font-medium text-red-600 hover:bg-red-50" onclick="window.askDeleteFolder('${f.id}')">Delete</button>
             </div>
           `;
         }).join("");
@@ -1408,7 +1416,7 @@
 
         const otherFolders = state.folders.filter(x => x.id !== folderId);
         if(otherFolders.length === 0){
-          delMoveToEl.innerHTML = `<option value="__auto__">Auto-create “My places”</option>`;
+          delMoveToEl.innerHTML = `<option value="__auto__">Auto-create "My places"</option>`;
         }else{
           delMoveToEl.innerHTML = otherFolders
             .map(x => `<option value="${escapeAttr(x.id)}">${escapeHtml(x.name)}</option>`)
@@ -1478,7 +1486,7 @@
         if(!q) return;
 
         poiResultsEl.classList.remove("hidden");
-        poiResultsEl.innerHTML = `<div class="p-4 text-sm text-zinc-600">Searching Athens…</div>`;
+        poiResultsEl.innerHTML = `<div class="p-4 text-sm text-zinc-500">Searching Athens...</div>`;
 
         const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=10&countrycodes=gr`;
 
@@ -1487,7 +1495,7 @@
           const data = await res.json();
 
           if(!Array.isArray(data) || data.length === 0){
-            poiResultsEl.innerHTML = `<div class="p-4 text-sm text-zinc-600">No results.</div>`;
+            poiResultsEl.innerHTML = `<div class="p-4 text-sm text-zinc-500">No results.</div>`;
             poiLayer.clearLayers();
             return;
           }
@@ -1513,12 +1521,12 @@
             }).addTo(poiLayer);
 
             m.bindPopup(`
-              <div class="w-[280px]">
-                <div class="font-semibold">${escapeHtml(r.name)}</div>
-                <div class="text-xs text-zinc-600 mt-1">${escapeHtml(r.display_name)}</div>
-                <div class="mt-2 flex gap-2">
-                  <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.poiZoom('${r.id}')">Zoom</button>
-                  <button class="btn px-2.5 py-1.5 rounded-xl border text-xs hover:bg-zinc-50" onclick="window.poiAdd('${r.id}')">Add</button>
+              <div style="width:260px;font-family:Inter,system-ui,sans-serif;">
+                <div style="font-weight:600;font-size:14px;">${escapeHtml(r.name)}</div>
+                <div style="font-size:11px;color:#71717a;margin-top:4px;">${escapeHtml(r.display_name)}</div>
+                <div style="display:flex;gap:6px;margin-top:8px;">
+                  <button style="padding:4px 10px;border-radius:8px;border:1px solid #e4e4e7;font-size:11px;background:#fff;cursor:pointer;" onclick="window.poiZoom('${r.id}')">Zoom</button>
+                  <button style="padding:4px 10px;border-radius:8px;border:1px solid #e4e4e7;font-size:11px;background:#fff;cursor:pointer;" onclick="window.poiAdd('${r.id}')">Add</button>
                 </div>
               </div>
             `);
@@ -1527,15 +1535,15 @@
           });
 
           poiResultsEl.innerHTML = poiResults.map(r => `
-            <div class="px-4 py-3 border-b last:border-b-0 hover:bg-zinc-50">
+            <div class="px-3.5 py-3 border-b last:border-b-0 hover:bg-zinc-50 transition-colors">
               <div class="flex items-start gap-2">
                 <div class="min-w-0 flex-1">
                   <div class="text-sm font-semibold truncate">${escapeHtml(r.name)}</div>
-                  <div class="text-xs text-zinc-600 line-clamp-2">${escapeHtml(r.display_name)}</div>
+                  <div class="text-[11px] text-zinc-500 line-clamp-2 mt-0.5">${escapeHtml(r.display_name)}</div>
                 </div>
-                <div class="flex gap-2">
-                  <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-white" onclick="window.poiZoom('${r.id}')">Zoom</button>
-                  <button class="btn px-3 py-1.5 rounded-xl border text-xs hover:bg-white" onclick="window.poiAdd('${r.id}')">Add</button>
+                <div class="flex gap-1.5 shrink-0">
+                  <button class="btn px-2.5 py-1 rounded-lg border text-[11px] font-medium hover:bg-white" onclick="window.poiZoom('${r.id}')">Zoom</button>
+                  <button class="btn px-2.5 py-1 rounded-lg bg-zinc-900 text-white text-[11px] font-medium" onclick="window.poiAdd('${r.id}')">Add</button>
                 </div>
               </div>
             </div>
@@ -1545,7 +1553,7 @@
           if(first) map.flyTo([first.lat, first.lon], 15, { duration: 0.8 });
           toast("Map results loaded.");
         }catch(e){
-          poiResultsEl.innerHTML = `<div class="p-4 text-sm text-zinc-600">Search failed.</div>`;
+          poiResultsEl.innerHTML = `<div class="p-4 text-sm text-zinc-500">Search failed.</div>`;
         }
       }
 
@@ -1556,6 +1564,7 @@
         const r = poiResults.find(x => x.id === poiId);
         if(!r) return;
         map.flyTo([r.lat, r.lon], 16, { duration: 0.8 });
+        if(window.innerWidth < 1024) hideSidebar();
         const m = poiMarkersById.get(poiId);
         if(m) setTimeout(() => m.openPopup(), 350);
       };
@@ -1588,7 +1597,6 @@
       function renderAll(){
         renderPlacesList();
         renderMarkers();
-        renderItinerary();
       }
 
       function initUI(){
@@ -1632,7 +1640,7 @@
         const localUpdatedAt = state?.meta?.updatedAtMs || 0;
         if(localUpdatedAt <= lastUploadedUpdatedAt) return;
 
-        setCloudUI("syncing", "Cloud: syncing…");
+        setCloudUI("syncing", "Cloud: syncing...");
 
         try{
           await tripDocRef.set({
@@ -1678,7 +1686,7 @@
 
       async function initFirebase(){
         try{
-          setCloudUI("syncing", "Cloud: connecting…");
+          setCloudUI("syncing", "Cloud: connecting...");
 
           if(firebase.apps && firebase.apps.length === 0){
             firebase.initializeApp(firebaseConfig);
